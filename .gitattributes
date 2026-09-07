@@ -1,0 +1,2 @@
+# Preserve the bytes of the released source and dependency files across checkouts.
+* -text

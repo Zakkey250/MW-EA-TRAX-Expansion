@@ -1,0 +1,13 @@
+/dist/
+/staging/
+/downloads/
+/diagnostics/
+/NFSMWEATraxExpansion/bin/
+/NFSMWEATraxExpansion/build/
+/NFSMWEATraxExpansion/converter/*.exe
+__pycache__/
+*.pyc
+*.pdb
+*.obj
+*.user
+.vs/
