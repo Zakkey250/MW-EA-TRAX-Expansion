@@ -13,6 +13,8 @@
 
 ゲーム本体、ASIローダー、UG2音源は付属しません。音楽の変換に必要なプログラムは付属しているため、Pythonや音声編集ソフトの追加インストールは不要です。
 
+追加EA TRAXと追加追跡BGMの再生用キャッシュには、ゲームで直接再生できるEA-XA圧縮を使用します。非可逆圧縮のため音質にはわずかな変化があります。元の音源ファイルはそのまま残ります。安全のため統合キャッシュは2 GiB未満に制限し、超える場合は生成を停止して通知します。その場合は追加曲を減らしてください。
+
 ### インストール
 
 1. ゲームを終了してZIPを展開します。
@@ -35,6 +37,10 @@
       Pursuit/          任意のThe Run変換後に作成される追跡BGM
       Runtime/          変換用プログラム（そのまま使用）
 ```
+
+### 曲名HUDの位置
+
+走行中の曲名パネルは、画面の縦横比に合わせて左上へ配置します。メイン／ガレージメニューの位置は従来どおりです。別のHUD配置MODで位置を調整する場合は、ゲーム終了中にINIの `[Main]` にある `HudAspectAssist` を `0` にしてください。初期値は `1`（有効）です。
 
 ### MP3・WAVを追加する
 
@@ -116,6 +122,8 @@ Use 64-bit Windows 10/11. The ASI itself targets the 32-bit MW game.
 
 The game, ASI loader and UG2 audio are not included. Audio conversion programs are included; no separate Python or audio editor installation is needed.
 
+Added EA TRAX songs and pursuit music use EA-XA compressed playback caches that the game can play directly. This is lossy compression, so audio quality changes slightly; your original audio files are preserved. A safety limit keeps the combined cache below 2 GiB. If it would exceed that limit, generation stops with a notice; reduce the number of added tracks before retrying.
+
 ### Installation
 
 1. Close the game and extract this ZIP.
@@ -136,6 +144,10 @@ Game folder/
       Pursuit/          Optional pursuit music created by the converter
       Runtime/          Conversion programs; keep as supplied
 ```
+
+### Song HUD position
+
+The in-world song panel is positioned at the upper left for your screen's aspect ratio. Main and garage menu positions stay unchanged. If you use another MOD to position this HUD, close the game and set `HudAspectAssist=0` under `[Main]` in the INI. The default is `1` (enabled).
 
 ### Adding MP3/WAV music
 

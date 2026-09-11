@@ -1,6 +1,57 @@
 """Pathfinder v5.1 serialization and EA PCM streaming. No game assets embedded."""
 import struct, wave
 
+def compressed_stream(wav,destination,probe,run):
+    raw=destination.with_suffix('.pcm')
+    try:
+        with wave.open(str(wav)) as w,raw.open('wb') as f:
+            if w.getparams()[:3]!=(2,2,36000):raise ValueError('Expected stereo PCM16 36kHz')
+            frames=w.getnframes()
+            while data:=w.readframes(65536):f.write(data)
+        run([probe,'--encode-eaxa',raw,0,frames,destination])
+        return round(frames*1000/36000)
+    finally:raw.unlink(missing_ok=True)
+
+def extract_pcm_stream(source,offset,destination):
+    """Return frame count for our legacy PCM stream, or None for compressed input."""
+    source.seek(offset);head=source.read(8)
+    if len(head)!=8 or head[:4]!=b'SCHl':raise ValueError('Invalid pursuit SCHl header')
+    size=u32(head,4)
+    if not 12<=size<=4096:raise ValueError('Invalid pursuit header size')
+    h=source.read(size-8)
+    if h[:4]!=b'PT\x00\x00':raise ValueError('Unsupported pursuit platform')
+    patches={};i=4
+    while i<len(h):
+        tag=h[i];i+=1
+        if tag==255:break
+        if tag in (252,253):continue
+        if i>=len(h):raise ValueError('Truncated pursuit patch')
+        length=h[i];i+=1
+        if i+length>len(h):raise ValueError('Truncated pursuit patch value')
+        patches[tag]=int.from_bytes(h[i:i+length],'big');i+=length
+    if patches.get(160,0)!=8:return None
+    if patches.get(130)!=2 or patches.get(132)!=36000:raise ValueError('Unsupported legacy PCM format')
+    total=0
+    with destination.open('wb') as out:
+        while True:
+            head=source.read(8)
+            if len(head)!=8:raise ValueError('Truncated pursuit stream')
+            tag,size=struct.unpack('<4sI',head)
+            if not 8<=size<=1048576:raise ValueError('Invalid pursuit block size')
+            b=source.read(size-8)
+            if len(b)!=size-8:raise ValueError('Truncated pursuit block')
+            if tag==b'SCEl':break
+            if tag!=b'SCDl':continue
+            count,left,right=struct.unpack_from('<III',b)
+            if 12+max(left,right)+count*2>len(b):raise ValueError('Invalid PCM offsets')
+            data=bytearray(count*4)
+            for ch,start in enumerate((left,right)):
+                planar=b[12+start:12+start+count*2]
+                data[ch*2::4]=planar[0::2];data[ch*2+1::4]=planar[1::2]
+            out.write(data);total+=count
+    if total!=patches.get(133):raise ValueError('PCM frame count mismatch')
+    return total
+
 def u16(b,o): return struct.unpack_from('<H',b,o)[0]
 def u32(b,o): return struct.unpack_from('<I',b,o)[0]
 def p32(b,o,v): struct.pack_into('<I',b,o,v)

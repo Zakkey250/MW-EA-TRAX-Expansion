@@ -8,6 +8,8 @@
 #include "Utilities.h"
 #include "VgmSource.h"
 #include "Loudness.h"
+#include "EaXaEncoder.h"
+#include "TraxHudAspect.h"
 
 #include <Windows.h>
 
@@ -25,6 +27,18 @@ namespace {
 int SelfTest() {
     using namespace eatrax;
     bool ok = true;
+    for(const auto dims:std::array<std::array<int,2>,5>{{{640,480},{1920,1080},{3440,1440},{3840,1600},{5120,1440}}}) {
+        for(float scale: {1.0f,0.92f}) {
+            const float aspect=static_cast<float>(dims[0])/dims[1];
+            const float shift=TraxHudOffset(dims[0],dims[1],true,true,scale);
+            const float left=240.0f*aspect+(-376.0f+shift)*scale;
+            const float reference=240.0f*(16.0f/9.0f)-376.0f*scale;
+            ok=ok && std::abs(left-reference)<0.001f;
+            ok=ok && TraxHudOffset(dims[0],dims[1],true,false,scale)==0.0f;
+        }
+    }
+    ok=ok && TraxHudOffset(640,480,false,true)==0.0f;
+    ok=ok && TraxHudOffset(3840,0,true,true)==0.0f;
     ok = ok && PursuitPressure(3, 6, 220) >= 60;
     ok = ok && PursuitPressure(1, 8, 200) >= 60;
     ok = ok && PursuitPressure(5, 4, 240) >= 60;
@@ -229,6 +243,15 @@ int wmain(const int argc, wchar_t** argv) {
         return 2;
     }
     const std::wstring command = argv[1];
+    if (command == L"--encode-eaxa" && argc == 6) {
+        try {
+            const auto start=std::stoull(argv[3]), frames=std::stoull(argv[4]);
+            if(frames>0x7fffffff) throw std::runtime_error("PCM frame limit exceeded");
+            std::cout << eax::EncodeRaw(argv[2],start,static_cast<uint32_t>(frames),argv[5]) << "\n";
+            return 0;
+        } catch(const std::exception& e) {std::cerr<<e.what()<<"\n";return 1;}
+    }
+    if (command == L"--eaxa-version") {std::cout<<"1\n";return 0;}
     if (command == L"--self-test") return SelfTest();
     if (command == L"--pursuit-list" && argc >= 3) {
         auto catalog = LoadCatalog(argv[2]);

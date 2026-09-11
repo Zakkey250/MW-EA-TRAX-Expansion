@@ -1,4 +1,4 @@
-# MW EA TRAX Expansion 0.4.6
+# MW EA TRAX Expansion 0.4.7
 
 [日本語 / English — 導入ガイド](docs/User-Guide.md)
 
@@ -6,4 +6,4 @@ The Run音源を含まないEA TRAX拡張本体です。The Run追跡BGMは別�
 
 EA TRAX expansion without bundled The Run audio. Pursuit music is optional and generated with the separate converter.
 
-[Converter guide](docs/Converter-README.md) · [Build instructions](docs/BUILD-046.md)
+[Converter guide](docs/Converter-README.md) · [Build instructions](docs/BUILD-047.md)

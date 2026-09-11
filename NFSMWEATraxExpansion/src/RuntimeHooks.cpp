@@ -7,6 +7,7 @@
 #include "PursuitIntensity.h"
 #include "Utilities.h"
 #include "GameImports.h"
+#include "TraxHudAspect.h"
 
 #include <Windows.h>
 #include <MinHook.h>
@@ -971,6 +972,101 @@ bool CreateHook(const std::uintptr_t address, void* replacement, T* original, st
     return true;
 }
 
+// The native chyron selects TRAX_POS_1 for world HUD and POS_2/POS_3
+// for frontend/garage. Shift the parent and all its animation positions by
+// the same relative delta, removing our prior delta before native relayout.
+using TraxLayoutFn = void(__thiscall*)(void*);
+TraxLayoutFn g_originalTraxLayout = nullptr;
+void* g_shiftedTraxRoot = nullptr;
+void* g_shiftedTraxData = nullptr;
+float g_traxShift = 0.0f;
+bool g_traxWorldPosition = false;
+float g_traxFeScale = 1.0f;
+bool g_traxAutoFit = false;
+
+struct TraxWindowSize { int width=0,height=0; };
+BOOL CALLBACK FindTraxWindow(HWND window,LPARAM data) {
+    DWORD pid=0;GetWindowThreadProcessId(window,&pid);
+    if(pid!=GetCurrentProcessId() || !IsWindowVisible(window) || GetWindow(window,GW_OWNER))return TRUE;
+    RECT r{};if(!GetClientRect(window,&r))return TRUE;
+    auto& size=*reinterpret_cast<TraxWindowSize*>(data);
+    if(static_cast<long long>(r.right)*r.bottom>static_cast<long long>(size.width)*size.height)
+        size={r.right,r.bottom};
+    return TRUE;
+}
+void* TraxRoot() {
+    return reinterpret_cast<void*(__cdecl*)(const char*,std::uint32_t)>(Address(0x00524850))(
+        "EA_TRAX.fng",0xA1341735u);
+}
+void ShiftTraxRoot(void* root,float delta) {
+    if(!root || delta==0.0f)return;
+    const float shift[3]={delta,0.0f,0.0f};
+    reinterpret_cast<void(__thiscall*)(void*,const float*,int)>(Address(0x005B8190))(root,shift,1);
+}
+void __fastcall TraxPositionMessage(void* instance,void*,std::uint32_t message,const char* package,int parameter) {
+    const auto worldHash=reinterpret_cast<std::uint32_t(__cdecl*)(const char*)>(Address(0x005AF1C0))("TRAX_POS_1");
+    g_traxWorldPosition=message==worldHash;
+    reinterpret_cast<void(__thiscall*)(void*,std::uint32_t,const char*,int)>(Address(0x00516C90))(
+        instance,message,package,parameter);
+}
+void __fastcall TraxLayoutHook(void* self,void*) {
+    const bool hadShift=g_traxShift!=0.0f;
+    void* root=TraxRoot();
+    void* data=root?*reinterpret_cast<void**>(static_cast<unsigned char*>(root)+0x2c):nullptr;
+    // Never touch a pointer retained from an unloaded/replaced package.
+    if(root==g_shiftedTraxRoot && data==g_shiftedTraxData)ShiftTraxRoot(root,-g_traxShift);
+    g_shiftedTraxRoot=nullptr;g_shiftedTraxData=nullptr;g_traxShift=0.0f;g_traxWorldPosition=false;
+    g_originalTraxLayout(self);
+    const bool world=g_traxWorldPosition && *reinterpret_cast<int*>(Address(0x00925E90))==6;
+    if(!world) {
+        if(hadShift)Log(LogLevel::Info,"EA TRAX HUD aspect assist: native menu/garage layout restored");
+        return;
+    }
+    root=TraxRoot();if(!root || *reinterpret_cast<int*>(static_cast<unsigned char*>(root)+0x18)!=5)return;
+    bool widescreen=false;
+    const auto* select=reinterpret_cast<const unsigned char*>(Address(0x0058D883));
+    if(select[0]==0xB0 && select[1]==1)widescreen=true; // Widescreen Fix's native selection override
+    else {
+        auto* manager=*reinterpret_cast<unsigned char**>(Address(kCareerManager));
+        auto* profile=manager?*reinterpret_cast<unsigned char**>(manager+0x10):nullptr;
+        if(profile)widescreen=profile[0x34]!=0;
+    }
+    TraxWindowSize size;EnumWindows(FindTraxWindow,reinterpret_cast<LPARAM>(&size));
+    float scale=g_traxFeScale;
+    if(g_traxAutoFit && size.height>0)scale*=std::min(1.0f,static_cast<float>(size.width)/size.height/(4.0f/3.0f));
+    const float delta=TraxHudOffset(size.width,size.height,widescreen,world,scale);
+    ShiftTraxRoot(root,delta);g_shiftedTraxRoot=root;
+    g_shiftedTraxData=*reinterpret_cast<void**>(static_cast<unsigned char*>(root)+0x2c);g_traxShift=delta;
+    static int lastWidth=0,lastHeight=0;static float lastDelta=9999.0f;
+    if(lastWidth!=size.width || lastHeight!=size.height || lastDelta!=delta) {
+        lastWidth=size.width;lastHeight=size.height;lastDelta=delta;
+        Log(LogLevel::Info,"EA TRAX HUD aspect assist: world=1 size=%dx%d widescreen=%d scale=%.3f shift_x=%.3f",
+            size.width,size.height,widescreen,scale,delta);
+    }
+}
+
+bool InstallTraxHudAssist(std::string* error) {
+    if(!ReadIniBool(g_catalog->config.iniPath,L"Main",L"HudAspectAssist",true))return true;
+    const unsigned char layout[]={0x81,0xEC,0x08,0x02,0x00,0x00};
+    const unsigned char position[]={0x83,0xEC,0x0C,0x56,0x8B,0xF1};
+    const unsigned char lookup[]={0x8B,0x44,0x24,0x04,0x85,0xC0};
+    if(std::memcmp(reinterpret_cast<void*>(Address(0x0058D670)),layout,sizeof(layout)) ||
+       std::memcmp(reinterpret_cast<void*>(Address(0x005B8190)),position,sizeof(position)) ||
+       std::memcmp(reinterpret_cast<void*>(Address(0x00524850)),lookup,sizeof(lookup))) {
+        Log(LogLevel::Warning,"EA TRAX HUD assist disabled: unsupported layout hook surface");return true;
+    }
+    if(GetModuleHandleW(L"NFSMostWanted.WidescreenFix.asi")) {
+        const auto ini=g_catalog->config.modRoot.parent_path()/L"NFSMostWanted.WidescreenFix.ini";
+        g_traxFeScale=ReadIniFloat(ini,L"MAIN",L"FEScale",1.0f);
+        g_traxAutoFit=ReadIniBool(ini,L"MAIN",L"AutoFitFE",true);
+    }
+    if(!CreateHook(0x0058D670,TraxLayoutHook,&g_originalTraxLayout,error))return false;
+    std::vector<PatchRecord> pending;
+    if(!ApplyRelativePatch(0x0058D86F,TraxPositionMessage,{0xE8,0x1C,0x94,0xF8,0xFF},0xE8,&pending,error))return false;
+    g_permanentPatches.insert(g_permanentPatches.end(),std::make_move_iterator(pending.begin()),std::make_move_iterator(pending.end()));
+    Log(LogLevel::Info,"EA TRAX HUD aspect assist enabled for native world position only");return true;
+}
+
 bool ApplyTransitionPatches(std::string* error) {
     std::vector<PatchRecord> pending;
     if (!ApplyRelativePatch(kStartPursuitClearCall, PursuitClearAllHook,
@@ -1040,7 +1136,8 @@ bool InstallRuntimeHooks(CatalogResult* catalog, std::string* error) {
         return false;
     }
     g_originalClearAllEvents = reinterpret_cast<ClearAllEventsFn>(Address(kClearAllEvents));
-    if (!ApplyTransitionPatches(error)) {
+    if (!ApplyTransitionPatches(error) || !InstallTraxHudAssist(error)) {
+        RestorePatches(&g_permanentPatches);
         MH_Uninitialize();
         return false;
     }

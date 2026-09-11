@@ -15,8 +15,8 @@ using System.Web.Script.Serialization;
 using System.Windows.Forms;
 using System.Drawing;
 
-[assembly: AssemblyVersion("0.4.6.0")]
-[assembly: AssemblyFileVersion("0.4.6.0")]
+[assembly: AssemblyVersion("0.4.7.0")]
+[assembly: AssemblyFileVersion("0.4.7.0")]
 [assembly: AssemblyTitle("The Run Pursuit Converter")]
 public class Source { public string id,hash; public long offset; public int length,frames; }
 public class Group { public string[] sources; public double gain; public int repeat,frames; }
@@ -60,17 +60,14 @@ static class ConvertAudio {
  }
  static void Patch(BinaryWriter w,byte tag,uint value){w.Write(tag);int n=value<=255?1:value<=65535?2:value<=16777215?3:4;w.Write((byte)n);for(int j=n-1;j>=0;j--)w.Write((byte)(value>>(j*8)));}
  static void Block(BinaryWriter w,string tag,byte[] b){w.Write(Encoding.ASCII.GetBytes(tag));w.Write(b.Length+8);w.Write(b);}
- static void StreamAudio(BinaryWriter dest,string pcm,int start,int frames) {
-  using(var m=new MemoryStream())using(var h=new BinaryWriter(m)) {
-   h.Write(new byte[]{80,84,0,0});Patch(h,128,3);Patch(h,129,16);Patch(h,130,2);Patch(h,132,36000);Patch(h,133,(uint)frames);Patch(h,160,8);h.Write((byte)255);
-   while(m.Length%4!=0)h.Write((byte)0);Block(dest,"SCHl",m.ToArray());
-  }Block(dest,"SCCl",BitConverter.GetBytes((frames+4095)/4096));
-  using(var input=File.OpenRead(pcm)){input.Position=(long)start*4;
-   for(int offset=0;offset<frames;offset+=4096){int count=Math.Min(4096,frames-offset);byte[] interleaved=new byte[count*4];int got=0,n;
-    while(got<interleaved.Length && (n=input.Read(interleaved,got,interleaved.Length-got))>0)got+=n;
-    using(var m=new MemoryStream())using(var w=new BinaryWriter(m)){w.Write(count);w.Write(0);w.Write(count*2);for(int ch=0;ch<2;ch++)for(int i=0;i<count;i++){w.Write(interleaved[i*4+ch*2]);w.Write(interleaved[i*4+ch*2+1]);}Block(dest,"SCDl",m.ToArray());}
-   }
-  }Block(dest,"SCEl",new byte[0]);
+ static void StreamAudio(BinaryWriter dest,string pcm,int start,int frames,string probe,CancellationToken ct) {
+  string encoded=Path.Combine(Path.GetDirectoryName(pcm),"encoded.asf");
+  var si=new ProcessStartInfo(probe,"--encode-eaxa "+Q(pcm)+" "+start+" "+frames+" "+Q(encoded)){UseShellExecute=false,CreateNoWindow=true,RedirectStandardError=true};
+  using(var p=Process.Start(si)){var errors=p.StandardError.ReadToEndAsync();
+   try{while(!p.WaitForExit(100))ct.ThrowIfCancellationRequested();if(p.ExitCode!=0)throw new Exception("EA-XA: "+errors.Result);}
+   finally{if(!p.HasExited){p.Kill();p.WaitForExit();}}
+  }
+  using(var input=File.OpenRead(encoded))input.CopyTo(dest.BaseStream);File.Delete(encoded);
  }
  static void GameClosed(string game) {
   foreach(var p in Process.GetProcessesByName("speed"))using(p){try{if(string.Equals(Path.GetDirectoryName(p.MainModule.FileName),game,StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException(T("先にMWを終了してください。","Close MW before converting."));}catch(System.ComponentModel.Win32Exception){throw new InvalidOperationException(T("実行中のゲームを終了してから再試行してください。","Close running game instances and try again."));}}
@@ -79,7 +76,13 @@ static class ConvertAudio {
  public static void Run(string sourceGame,string mwGame,Action<string> log,CancellationToken ct) {
   sourceGame=Path.GetFullPath(sourceGame);mwGame=Path.GetFullPath(mwGame).TrimEnd(Path.DirectorySeparatorChar);GameClosed(mwGame);
   string mod=Path.Combine(mwGame,"scripts","NFSMWEATraxExpansion"),ff=Path.Combine(mod,"Runtime","ffmpeg.exe");
-  Check(File.Exists(ff) && File.Exists(Path.Combine(mod,"NFSMWEATraxExpansion.ini")),T("先にMW EA TRAX Expansion 0.4.6を導入してください。","Install MW EA TRAX Expansion 0.4.6 first."));
+  Check(File.Exists(ff) && File.Exists(Path.Combine(mod,"NFSMWEATraxExpansion.ini")),T("先にMW EA TRAX Expansion 0.4.7を導入してください。","Install MW EA TRAX Expansion 0.4.7 first."));
+  string encoder=Path.Combine(mod,"Runtime","NFSMWEATraxProbe.exe");
+  Check(File.Exists(encoder),T("圧縮生成対応のMW EA TRAX Expansionを先に導入してください。","Install the compression-enabled MW EA TRAX Expansion first."));
+  using(var p=Process.Start(new ProcessStartInfo(encoder,"--eaxa-version"){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true})) {
+   string version=p.StandardOutput.ReadToEnd();p.WaitForExit();
+   Check(p.ExitCode==0 && version.Trim()=="1",T("MW EA TRAX Expansionの本体を圧縮生成対応版へ更新してください。","Update the main MW EA TRAX Expansion installation to the compression-enabled version."));
+  }
   var serializer=new JavaScriptSerializer(){MaxJsonLength=4000000};Recipe r=serializer.Deserialize<Recipe>(Encoding.UTF8.GetString(Resource("recipe.json")));
   string sb=Path.Combine(sourceGame,r.source);Check(File.Exists(sb),T("The RunのData/Win32/ChunksAudio.sbが見つかりません。","The Run Data/Win32/ChunksAudio.sb was not found."));
   string work=Path.Combine(mod,"converter-work-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(work);
@@ -105,7 +108,7 @@ static class ConvertAudio {
     Check(s.start>=0 && frames>0 && s.start+frames<=available+28,"Invalid audio slice");while(w.BaseStream.Position%128!=0)w.Write((byte)0);
     Buffer.BlockCopy(BitConverter.GetBytes(checked((uint)(w.BaseStream.Position/128))),0,mpf,table+i*8,4);
     Buffer.BlockCopy(BitConverter.GetBytes((uint)Math.Round(frames*1000.0/36000)),0,mpf,table+i*8+4,4);
-    StreamAudio(w,pcm,s.start,frames);if(i%20==0)log(T("追跡データを生成中 ","Building pursuit data ")+(i+1)+"/"+r.samples.Length);
+    StreamAudio(w,pcm,s.start,frames,Path.Combine(mod,"Runtime","NFSMWEATraxProbe.exe"),ct);if(i%20==0)log(T("追跡データを生成中 ","Building pursuit data ")+(i+1)+"/"+r.samples.Length);
    }
    File.WriteAllBytes(Path.Combine(ready,"CustomPursuit.mpf"),mpf);
    string ini=Encoding.ASCII.GetString(Resource("profile.ini")).Replace("MpfSHA256=GENERATED","MpfSHA256="+Hash(mpf)).Replace("MusSHA256=GENERATED","MusSHA256="+FileHash(Path.Combine(ready,"CustomPursuit.mus")));
@@ -125,8 +128,8 @@ static class ConvertAudio {
 }
 class ConverterForm:Form {
  TextBox source=new TextBox(),target=new TextBox(),status=new TextBox();Button start=new Button(),cancel=new Button();CancellationTokenSource cts;
- public ConverterForm(){Text="The Run Pursuit Converter 0.4.6";ClientSize=new Size(740,430);StartPosition=FormStartPosition.CenterScreen;Font=new Font("Segoe UI",10);FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=false;
-  Controls.Add(new Label(){Text=ConvertAudio.T("所有するPC版The Runから追跡BGMを生成します。先にMW EA TRAX Expansion 0.4.6を導入してください。","Convert pursuit music from your PC copy of The Run. Install MW EA TRAX Expansion 0.4.6 first."),Bounds=new Rectangle(18,12,704,55)});
+ public ConverterForm(){Text="The Run Pursuit Converter 0.4.7";ClientSize=new Size(740,430);StartPosition=FormStartPosition.CenterScreen;Font=new Font("Segoe UI",10);FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=false;
+  Controls.Add(new Label(){Text=ConvertAudio.T("所有するPC版The Runから追跡BGMを生成します。先にMW EA TRAX Expansion 0.4.7を導入してください。","Convert pursuit music from your PC copy of The Run. Install MW EA TRAX Expansion 0.4.7 first."),Bounds=new Rectangle(18,12,704,55)});
   AddPath(source,74,"The Run",false);AddPath(target,132,"Most Wanted",true);
   start.Text=ConvertAudio.T("変換開始","Convert");start.Bounds=new Rectangle(18,196,140,34);cancel.Text=ConvertAudio.T("キャンセル","Cancel");cancel.Bounds=new Rectangle(170,196,140,34);cancel.Enabled=false;Controls.Add(start);Controls.Add(cancel);
   status.Multiline=true;status.ReadOnly=true;status.ScrollBars=ScrollBars.Vertical;status.Bounds=new Rectangle(18,245,704,165);Controls.Add(status);

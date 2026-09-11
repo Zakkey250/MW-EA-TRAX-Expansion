@@ -1,4 +1,4 @@
-﻿#include "Catalog.h"
+#include "Catalog.h"
 #include "Logging.h"
 #include "RuntimeHooks.h"
 #include "Utilities.h"
@@ -14,7 +14,7 @@
 namespace eatrax {
 namespace {
 
-constexpr wchar_t kPluginVersion[] = L"0.4.6";
+constexpr wchar_t kPluginVersion[] = L"0.4.7";
 constexpr std::uintmax_t kSupportedExecutableSize = 6033408;
 constexpr char kSupportedExecutableSha256[] =
     "05873CF968E0BDD021C1E67FF22E9350D22E7F433F1D749323FA6AE27F504700";

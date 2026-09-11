@@ -1,4 +1,4 @@
-# NFSMW EA TRAX Expansion 0.4.6
+# NFSMW EA TRAX Expansion 0.4.7
 
 ## 日本語
 

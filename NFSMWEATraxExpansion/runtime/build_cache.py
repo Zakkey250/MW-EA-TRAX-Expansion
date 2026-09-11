@@ -2,7 +2,10 @@
 import argparse,configparser,hashlib,json,math,msvcrt,os,re,shutil,struct,subprocess,sys,tempfile,time
 from pathlib import Path
 import native_bank as n
-VERSION=3
+VERSION=4
+# Conservative native streaming boundary. This is a compatibility guard, not
+# a claim that every native read path has a proven signed 2 GiB limit.
+MAX_BANK_BYTES=0x7fffff80
 
 def source_key(job, volume):
     return (job['kind'], job['hash'], job['subsong'], volume)
@@ -88,7 +91,7 @@ def main():
                 if previous.get('fingerprint')==fingerprint and valid_outputs:
                     say(f'CACHE HIT: {len(jobs)} songs; source_hash_reads={hash_reads}; bank_reads=0');return 0
                 old=previous.get('signature',{})
-                if valid_outputs and old.get('version') in (2,3):
+                if valid_outputs and old.get('version') == VERSION:
                     old_samples=n.samples((cache/'EA_TRAX.mpf').read_bytes())
                     for job,measurement in zip(old.get('jobs',[]),previous.get('measurements',[])):
                         reusable[source_key(job,old.get('volume'))]=(old_samples[measurement['sample']-1][0]*128,measurement)
@@ -119,7 +122,7 @@ def main():
                             gain=max(-60,min(12,-8.6-lufs)) if math.isfinite(lufs) else 0
                             amplitude=10**(gain/20)*volume
                             run([ff,'-v','error','-y','-threads','1','-i',pcm,'-af',f'volume={amplitude:.9f},alimiter=limit=0.98:level=0:latency=1','-c:a','pcm_s16le',normalized])
-                            duration=n.pcm_stream(normalized,stream)
+                            duration=n.compressed_stream(normalized,stream,probe,run)
                             with stream.open('rb') as encoded:shutil.copyfileobj(encoded,dest)
                         ss.append((offset//128,duration));sample=len(ss);root=len(ns);event=0xe00000+index
                         for pos,t in enumerate(templates):
@@ -133,9 +136,17 @@ def main():
                     if all(present):
                         pack=packfile.read_bytes();pn=n.nodes(pack);ps=n.samples(pack);nodebase=len(ns);samplebase=len(ss)
                         nm={i:nodebase+i for i in range(len(pn))};sm={i+1:samplebase+i+1 for i in range(len(ps))}
-                        dest.write(bytes((-dest.tell())%128));start=dest.tell()
-                        with packmus.open('rb') as packed:shutil.copyfileobj(packed,dest)
-                        ss.extend((off+start//128,duration) for off,duration in ps)
+                        with packmus.open('rb') as packed:
+                            for index,(off,duration) in enumerate(ps):
+                                dest.write(bytes((-dest.tell())%128));start=dest.tell()
+                                raw=work/'pursuit.pcm';stream=work/'pursuit.asf'
+                                frames=n.extract_pcm_stream(packed,off*128,raw)
+                                if frames is None:copy_stream(packed,dest,off*128)
+                                else:
+                                    run([probe,'--encode-eaxa',raw,0,frames,stream])
+                                    with stream.open('rb') as encoded:shutil.copyfileobj(encoded,dest)
+                                ss.append((start//128,duration))
+                                if index%40==0:say(f'Compressed pursuit {index+1}/{len(ps)}')
                         ns.extend(n.relocate_node(r,nm,sm) for r in pn);es.extend(n.relocate_event(e,nm) for e in n.events(pack))
                         for section in packcfg.sections():
                             if section.startswith('Adaptive'):
@@ -152,6 +163,8 @@ def main():
                         if (n.u32(e,o+4)>>8)&255==4:e[o+4:o+12]=wait[4:];n.p32(e,o+8,0)
                     controls[f'{eid:06X}']=hex(replacement);es.append(e)
                 profile['PursuitControls']=controls
+                if outmus.stat().st_size>MAX_BANK_BYTES:
+                    raise ValueError('Compressed cache exceeds the 2 GiB safety limit. Reduce added tracks. / 圧縮後もキャッシュが2 GiBの安全上限を超えています。追加曲を減らしてください。')
                 out=n.serialize(b,ns,es,ss);(work/'EA_TRAX.mpf').write_bytes(out)
                 profile['NativeMusic']['MpfSHA256']=sha(work/'EA_TRAX.mpf');profile['NativeMusic']['MusSHA256']=sha(outmus)
                 with (work/'NativeMusic.ini').open('w',encoding='ascii') as f:profile.write(f,space_around_delimiters=False)
