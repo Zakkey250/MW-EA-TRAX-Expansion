@@ -1,5 +1,11 @@
 # MW EA TRAX Expansion and The Run Pursuit Music
 
+## Source use / ソース利用条件
+
+Research, exchange of ideas and personal use (including local modifications/builds) are permitted. Redistribution and distribution of modified builds require prior express permission. See [LICENSE.md](LICENSE.md); third-party licenses and previously granted rights are preserved.
+
+研究・意見交換・個人利用（個人用の改変・ビルドを含む）は可能です。再配布および改変物のビルド配布には事前の明示的な許可が必要です。[利用条件](LICENSE.md)を確認してください。第三者ライセンスと過去に付与済みの権利は維持します。
+
 Source code for **version 0.4.7**, an ASI mod for Need for Speed Most Wanted (2005), and its optional The Run Pursuit Converter.
 
 **[Build instructions / ビルド手順](NFSMWEATraxExpansion/docs/BUILD-047.md)** · **[Installation guide / 導入ガイド](NFSMWEATraxExpansion/docs/User-Guide.md)** · **[Converter guide / コンバーター](NFSMWEATraxExpansion/docs/Converter-README.md)**
