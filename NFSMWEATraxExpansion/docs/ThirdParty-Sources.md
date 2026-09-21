@@ -13,3 +13,9 @@ Individual licenses in this folder apply to their respective components, indepen
 
 The player package contains no music from MW, UG2 or The Run. Playback caches and converter output are generated locally from the user's files.
 ゲーム音源は本体に同梱していません。再生用キャッシュと追跡音源は利用者のファイルからローカル生成します。
+
+## Metadata support (0.4.8)
+
+Pinned dependencies are listed in runtime/requirements.txt and supplied during the runtime build from runtime/vendor: Mutagen 1.47.0 (GPL-2.0-or-later), pykakasi 2.3.0 (GPL-3.0-or-later), jaconv 0.5.0, Deprecated 1.3.1 and wrapt 2.4.1. Their license notices are in distribution/Licenses/Metadata-*.txt. Mutagen reads tags locally; pykakasi uses bundled reading dictionaries. No audio or tag text is sent to a service.
+
+The update metadata parser uses nlohmann/json under its MIT license (third_party/nlohmann/LICENSE.MIT). Notification serialization and release validation are adapted from Zakkey250's MW Native Free Roam Racer implementation.

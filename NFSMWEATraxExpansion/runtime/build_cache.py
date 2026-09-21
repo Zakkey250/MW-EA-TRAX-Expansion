@@ -2,6 +2,7 @@
 import argparse,configparser,hashlib,json,math,msvcrt,os,re,shutil,struct,subprocess,sys,tempfile,time
 from pathlib import Path
 import native_bank as n
+from track_metadata import prepare_sidecars
 VERSION=4
 # Conservative native streaming boundary. This is a compatibility guard, not
 # a claim that every native read path has a proven signed 2 GiB limit.
@@ -45,6 +46,7 @@ def main():
         try:
             ini=config(mod/'NFSMWEATraxExpansion.ini');volume=ini.getfloat('Main','VolumeMultiplier',fallback=1)
             if not math.isfinite(volume) or not 0<=volume<=2:raise ValueError('VolumeMultiplier must be 0..2')
+            prepare_sidecars(mod, ini.getboolean('Main','LoadExternalTracks',fallback=True), say)
             jobs=json.loads(run([probe,'--export-native-jobs',mod]).stdout.decode('utf-8-sig'))
             if len(jobs)>94:raise ValueError('Native bank supports at most 94 added songs with this pursuit pack')
             hashfile=cache/'FileHashes.json'

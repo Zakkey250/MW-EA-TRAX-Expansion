@@ -11,3 +11,6 @@ __pycache__/
 *.obj
 *.user
 .vs/
+
+/NFSMWEATraxExpansion/runtime/vendor/
+/NFSMWEATraxExpansion/artifacts/

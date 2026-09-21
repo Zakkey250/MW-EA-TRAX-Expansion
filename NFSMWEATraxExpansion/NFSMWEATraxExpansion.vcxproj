@@ -106,6 +106,7 @@
     <ClCompile Include="src\Catalog.cpp" />
     <ClCompile Include="src\Logging.cpp" />
     <ClCompile Include="src\Plugin.cpp" />
+    <ClCompile Include="src\UpdateNotice.cpp" />
     <ClCompile Include="src\PlaylistSelector.cpp" />
     <ClCompile Include="src\RuntimeHooks.cpp" />
     <ClCompile Include="src\Utilities.cpp" />

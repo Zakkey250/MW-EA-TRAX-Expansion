@@ -1,10 +1,10 @@
-# The Run Pursuit Converter 0.4.7
+# The Run Pursuit Converter 0.4.8
 
 ## 日本語
 
 お手持ちのPC版Need for Speed The Runから、MW EA TRAX Expansion向けの追跡BGM 8曲を生成するアプリです。音源は内蔵していません。
 
-1. 64ビット版Windows 10/11で、MW EA TRAX Expansion 0.4.7を先に導入してください。
+1. 64ビット版Windows 10/11で、MW EA TRAX Expansion 0.4.8のCoreとRuntimeの両方を先に導入してください。
 2. The Runをインストールし、MWを終了してください。
 3. `TheRunPursuitConverter.exe` を起動します。
 4. The RunとMWの**ゲーム本体のフォルダー**をそれぞれ選択し、「変換開始」を押します。
@@ -25,7 +25,7 @@
 
 Create eight pursuit scores for MW EA TRAX Expansion from your PC copy of Need for Speed The Run. No audio is embedded in this application.
 
-1. Install MW EA TRAX Expansion 0.4.7 on 64-bit Windows 10/11 first.
+1. Install both MW EA TRAX Expansion 0.4.8 Core and Runtime on 64-bit Windows 10/11 first.
 2. Install The Run and close MW.
 3. Open `TheRunPursuitConverter.exe`.
 4. Select the **game installation folders** for The Run and MW, then click Convert.

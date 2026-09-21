@@ -1,4 +1,4 @@
-#include "AudioEngine.h"
+﻿#include "AudioEngine.h"
 
 #include "VgmSource.h"
 #include "Loudness.h"
@@ -12,6 +12,8 @@
 #include <cmath>
 #include <cstring>
 #include <mutex>
+#include <fstream>
+#include <cwctype>
 
 namespace eatrax {
 namespace {
@@ -287,6 +289,20 @@ bool AudioEngine::IsPaused() const {
 }
 
 bool AudioEngine::ProbeExternalFile(const std::filesystem::path& path, std::string* error) {
+    auto extension = path.extension().wstring();
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+                   [](wchar_t c) { return std::towlower(c); });
+    if (extension == L".m4a") {
+        // Container eligibility only. FFmpeg fully decodes AAC/ALAC before the
+        // generated native bank can be activated; miniaudio is not used here.
+        std::ifstream input(path, std::ios::binary);
+        char header[12]{};
+        if (!input.read(header, sizeof(header)) || std::memcmp(header + 4, "ftyp", 4)) {
+            if (error) *error = "invalid M4A container header";
+            return false;
+        }
+        return true;
+    }
     ma_decoder decoder{};
     const ma_decoder_config config = ma_decoder_config_init_default();
     if (ma_decoder_init_file_w(path.c_str(), &config, &decoder) != MA_SUCCESS) {

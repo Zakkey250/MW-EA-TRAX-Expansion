@@ -15,8 +15,8 @@ using System.Web.Script.Serialization;
 using System.Windows.Forms;
 using System.Drawing;
 
-[assembly: AssemblyVersion("0.4.7.0")]
-[assembly: AssemblyFileVersion("0.4.7.0")]
+[assembly: AssemblyVersion("0.4.8.0")]
+[assembly: AssemblyFileVersion("0.4.8.0")]
 [assembly: AssemblyTitle("The Run Pursuit Converter")]
 public class Source { public string id,hash; public long offset; public int length,frames; }
 public class Group { public string[] sources; public double gain; public int repeat,frames; }
@@ -76,7 +76,7 @@ static class ConvertAudio {
  public static void Run(string sourceGame,string mwGame,Action<string> log,CancellationToken ct) {
   sourceGame=Path.GetFullPath(sourceGame);mwGame=Path.GetFullPath(mwGame).TrimEnd(Path.DirectorySeparatorChar);GameClosed(mwGame);
   string mod=Path.Combine(mwGame,"scripts","NFSMWEATraxExpansion"),ff=Path.Combine(mod,"Runtime","ffmpeg.exe");
-  Check(File.Exists(ff) && File.Exists(Path.Combine(mod,"NFSMWEATraxExpansion.ini")),T("先にMW EA TRAX Expansion 0.4.7を導入してください。","Install MW EA TRAX Expansion 0.4.7 first."));
+  Check(File.Exists(ff) && File.Exists(Path.Combine(mod,"NFSMWEATraxExpansion.ini")),T("先にMW EA TRAX Expansion 0.4.8のCoreとRuntimeを導入してください。","Install MW EA TRAX Expansion 0.4.8 Core and Runtime first."));
   string encoder=Path.Combine(mod,"Runtime","NFSMWEATraxProbe.exe");
   Check(File.Exists(encoder),T("圧縮生成対応のMW EA TRAX Expansionを先に導入してください。","Install the compression-enabled MW EA TRAX Expansion first."));
   using(var p=Process.Start(new ProcessStartInfo(encoder,"--eaxa-version"){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true})) {
@@ -128,8 +128,8 @@ static class ConvertAudio {
 }
 class ConverterForm:Form {
  TextBox source=new TextBox(),target=new TextBox(),status=new TextBox();Button start=new Button(),cancel=new Button();CancellationTokenSource cts;
- public ConverterForm(){Text="The Run Pursuit Converter 0.4.7";ClientSize=new Size(740,430);StartPosition=FormStartPosition.CenterScreen;Font=new Font("Segoe UI",10);FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=false;
-  Controls.Add(new Label(){Text=ConvertAudio.T("所有するPC版The Runから追跡BGMを生成します。先にMW EA TRAX Expansion 0.4.7を導入してください。","Convert pursuit music from your PC copy of The Run. Install MW EA TRAX Expansion 0.4.7 first."),Bounds=new Rectangle(18,12,704,55)});
+ public ConverterForm(){Text="The Run Pursuit Converter 0.4.8";ClientSize=new Size(740,430);StartPosition=FormStartPosition.CenterScreen;Font=new Font("Segoe UI",10);FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=false;
+  Controls.Add(new Label(){Text=ConvertAudio.T("所有するPC版The Runから追跡BGMを生成します。先にMW EA TRAX Expansion 0.4.8のCoreとRuntimeを導入してください。","Convert pursuit music from your PC copy of The Run. Install MW EA TRAX Expansion 0.4.8 Core and Runtime first."),Bounds=new Rectangle(18,12,704,55)});
   AddPath(source,74,"The Run",false);AddPath(target,132,"Most Wanted",true);
   start.Text=ConvertAudio.T("変換開始","Convert");start.Bounds=new Rectangle(18,196,140,34);cancel.Text=ConvertAudio.T("キャンセル","Cancel");cancel.Bounds=new Rectangle(170,196,140,34);cancel.Enabled=false;Controls.Add(start);Controls.Add(cancel);
   status.Multiline=true;status.ReadOnly=true;status.ScrollBars=ScrollBars.Vertical;status.Bounds=new Rectangle(18,245,704,165);Controls.Add(status);

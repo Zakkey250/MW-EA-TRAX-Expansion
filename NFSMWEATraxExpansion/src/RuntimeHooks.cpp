@@ -1,4 +1,4 @@
-#include "RuntimeHooks.h"
+﻿#include "RuntimeHooks.h"
 
 #include "Logging.h"
 #include "PlaylistSelector.h"
@@ -880,10 +880,12 @@ void __cdecl PursuitClearAllHook(const std::uint32_t mask) {
             g_pursuitGroup = SelectTestPursuitGroup(testTrack, g_catalog->pursuitTracks,
                                                  NextRandomLocked(), validTestTrack);
         } else {
-            const auto enabled = EnabledPursuitList(*g_catalog);
-            if (enabled.empty()) Log(LogLevel::Warning, "Pursuit list is empty; using Vanilla");
             if (mode != L"random" && mode != L"list") Log(LogLevel::Warning, "Invalid Pursuit Mode; using Random");
-            g_pursuitGroup = SelectListedPursuitGroup(enabled, NextRandomLocked());
+            g_pursuitGroup = SelectConfiguredPursuitGroup(mode, g_catalog->pursuitTracks.size(), [&] {
+                const auto enabled = EnabledPursuitList(*g_catalog);
+                if (enabled.empty()) Log(LogLevel::Warning, "Pursuit list is empty; using Vanilla");
+                return enabled;
+            }, NextRandomLocked());
         }
     }
     if (!validTestTrack) Log(LogLevel::Warning, "Pursuit TestTrack invalid or unavailable: %ls; using Vanilla", testTrack.c_str());
@@ -1045,6 +1047,73 @@ void __fastcall TraxLayoutHook(void* self,void*) {
     }
 }
 
+
+// The original helper widens signed bytes, not UTF-8. Only exact metadata
+// strings registered by this MOD are decoded; every other caller is unchanged.
+using ByteWidenFn = wchar_t*(__cdecl*)(wchar_t*, const char*);
+ByteWidenFn g_originalByteWiden = nullptr;
+std::unordered_map<std::string, std::wstring> g_unicodeMetadata;
+wchar_t* __cdecl MetadataByteWiden(wchar_t* destination, const char* source) {
+    const auto found = source ? g_unicodeMetadata.find(source) : g_unicodeMetadata.end();
+    if (found == g_unicodeMetadata.end()) return g_originalByteWiden(destination, source);
+    // UTF-16 length is never larger than the UTF-8 byte count, so the original
+    // caller's destination capacity remains sufficient even if sized by strlen.
+    std::memcpy(destination, found->second.c_str(), (found->second.size() + 1) * sizeof(wchar_t));
+    static std::atomic<unsigned> count{0};
+    if (count.fetch_add(1) < 12)
+        Log(LogLevel::Info, "Japanese metadata converted to UTF-16: %s", source);
+    return destination;
+}
+using MetadataAssignFn = void*(__thiscall*)(void*, const char*);
+MetadataAssignFn g_originalMetadataAssign = nullptr;
+void* __fastcall MetadataAssign(void* self, void*, const char* source) {
+    const auto found = source ? g_unicodeMetadata.find(source) : g_unicodeMetadata.end();
+    if (found == g_unicodeMetadata.end()) return g_originalMetadataAssign(self, source);
+    static std::atomic<unsigned> count{0};
+    if (count.fetch_add(1) < 12)
+        Log(LogLevel::Info, "Japanese metadata assigned to native string: %s", source);
+    return reinterpret_cast<void*(__thiscall*)(void*, const wchar_t*)>(Address(0x005BCD20))(
+        self, found->second.c_str());
+}
+bool InstallUnicodeMetadata(std::string* error) {
+    if (!ReadIniBool(g_catalog->config.iniPath, L"Main", L"JapaneseMetadata", false)) return true;
+    const unsigned char expected[] = {0x8B,0x54,0x24,0x08,0x66,0x0F,0xBE,0x0A};
+    if (std::memcmp(reinterpret_cast<void*>(Address(0x004611C0)), expected, sizeof(expected))) {
+        Log(LogLevel::Warning, "Japanese metadata disabled: unsupported text conversion surface");
+        return true;
+    }
+    const unsigned char assign[] = {0x81,0xEC,0x00,0x08,0x00,0x00,0x56,0x8B,0xF1};
+    const unsigned char wide[] = {0x56,0x8B,0x74,0x24,0x08,0x85,0xF6,0x57,0x8B,0xF9};
+    if (std::memcmp(reinterpret_cast<void*>(Address(0x0057E8C0)), assign, sizeof(assign)) ||
+        std::memcmp(reinterpret_cast<void*>(Address(0x005BCD20)), wide, sizeof(wide))) {
+        Log(LogLevel::Warning, "Japanese metadata disabled: unsupported native string surface");
+        return true;
+    }
+    if (!CreateHook(0x004611C0, MetadataByteWiden, &g_originalByteWiden, error) ||
+        !CreateHook(0x0057E8C0, MetadataAssign, &g_originalMetadataAssign, error)) return false;
+    for (auto& track : g_catalog->tracks) {
+        if (track.sourceKind != SourceKind::External) continue;
+        auto ini = track.sourcePath; ini.replace_extension(L".ini");
+        auto registerText = [&](const wchar_t* field, std::string& display) {
+            const auto manual = ReadIniString(ini, L"Track", field, L"");
+            auto original = ReadIniString(ini, L"OriginalMetadata", field, manual.c_str());
+            if (original.size() > 95) original.resize(95);
+            if (!original.empty() && original.back() >= 0xD800 && original.back() <= 0xDBFF) original.pop_back();
+            if (std::none_of(original.begin(), original.end(), [](wchar_t ch) { return ch > 127; })) return;
+            auto utf8 = WideToUtf8(original);
+            if (utf8.empty() || original.size() > utf8.size()) return;
+            g_unicodeMetadata.emplace(utf8, original);
+            display = std::move(utf8);
+        };
+        registerText(L"Title", track.title);
+        registerText(L"Artist", track.artist);
+        registerText(L"Album", track.album);
+    }
+    Log(LogLevel::Info, "Japanese metadata experiment enabled: registered=%u; font coverage requires visual verification",
+        static_cast<unsigned>(g_unicodeMetadata.size()));
+    return true;
+}
+
 bool InstallTraxHudAssist(std::string* error) {
     if(!ReadIniBool(g_catalog->config.iniPath,L"Main",L"HudAspectAssist",true))return true;
     const unsigned char layout[]={0x81,0xEC,0x08,0x02,0x00,0x00};
@@ -1136,7 +1205,7 @@ bool InstallRuntimeHooks(CatalogResult* catalog, std::string* error) {
         return false;
     }
     g_originalClearAllEvents = reinterpret_cast<ClearAllEventsFn>(Address(kClearAllEvents));
-    if (!ApplyTransitionPatches(error) || !InstallTraxHudAssist(error)) {
+    if (!ApplyTransitionPatches(error) || !InstallTraxHudAssist(error) || !InstallUnicodeMetadata(error)) {
         RestorePatches(&g_permanentPatches);
         MH_Uninitialize();
         return false;

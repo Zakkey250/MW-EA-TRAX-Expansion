@@ -1,11 +1,15 @@
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(SPECPATH) / 'vendor'))
+from PyInstaller.utils.hooks import collect_data_files
 # -*- mode: python ; coding: utf-8 -*-
 
 
 a = Analysis(
     [str(__import__('pathlib').Path(SPECPATH) / 'build_cache.py')],
-    pathex=[],
+    pathex=[str(Path(SPECPATH) / 'vendor')],
     binaries=[],
-    datas=[],
+    datas=collect_data_files('pykakasi'),
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

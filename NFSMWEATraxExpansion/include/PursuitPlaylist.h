@@ -12,7 +12,7 @@ inline std::vector<std::size_t> EnabledPursuitList(const CatalogResult& catalog)
     auto add = [&](const wchar_t* key, unsigned definition) {
         if (listed[definition]) return;
         listed[definition] = true;
-        if (!ReadIniBool(ini, L"Pursuit", key, true)) return;
+        if (!ReadIniBool(ini, L"Pursuit", key, false)) return;
         if (definition == 0) { result.push_back(0); return; }
         const auto event = kPursuitScores[definition - 1].event;
         for (std::size_t i = 0; i < catalog.pursuitTracks.size(); ++i)

@@ -1,4 +1,4 @@
-#include "Catalog.h"
+﻿#include "Catalog.h"
 
 #include "AudioEngine.h"
 #include "Utilities.h"
@@ -75,7 +75,7 @@ void LoadExternalTracks(CatalogResult& result) {
         }
         if (!iterator->is_regular_file(error)) continue;
         const std::wstring extension = LowerWide(iterator->path().extension().wstring());
-        if (extension == L".mp3" || extension == L".wav") {
+        if (extension == L".mp3" || extension == L".wav" || extension == L".m4a") {
             files.push_back(iterator->path());
         }
     }

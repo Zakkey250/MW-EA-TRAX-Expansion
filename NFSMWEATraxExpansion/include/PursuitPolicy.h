@@ -21,11 +21,20 @@ inline std::wstring PursuitName(std::wstring name) {
     return result;
 }
 
-// Random and List both draw from the enabled song list on each pursuit start.
+// List draws only from enabled entries on each pursuit start.
 inline std::size_t SelectListedPursuitGroup(const std::vector<std::size_t>& enabled,
     std::uint32_t random) {
     if (enabled.empty()) return 0; // Keep the game's stock score as a safe fallback.
     return enabled[random % enabled.size()];
+}
+
+// Read song switches only in List mode. Random includes stock group zero and
+// every installed group, regardless of list switches; unknown modes use Random.
+template<class ListProvider>
+inline std::size_t SelectConfiguredPursuitGroup(const std::wstring& mode,
+    std::size_t externalCount, ListProvider&& list, std::uint32_t random) {
+    return mode == L"list" ? SelectListedPursuitGroup(list(), random)
+                          : SelectPursuitGroup(externalCount, random);
 }
 
 // Resolve by stable entry event, never by the current catalog order.

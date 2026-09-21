@@ -1,5 +1,13 @@
 # EA TRAX Expansion — 導入ガイド / Installation guide
 
+0.4.8: Coreと対応するRuntimeの両方を7zから展開してください。The Run Converterは任意です。
+Install both matching Core and Runtime 7z packages. The Run Converter is optional.
+Runtime / Converter: https://github.com/Zakkey250/MW-EA-TRAX-Expansion/releases
+更新時は既存INI・音源・追跡データ・Cacheを保持してください。Keep existing INIs, audio, pursuit data and Cache when updating.
+JapaneseMetadata=1で元の日本語を表示（日本語対応フォントが必要）、0で英字表記です。
+JapaneseMetadata=1 displays original Japanese metadata (Japanese-capable fonts required); 0 uses romanized text.
+[Updates] Enabled=0で更新確認を無効化できます。Set [Updates] Enabled=0 to disable online release checks.
+
 ## 日本語
 
 ### 用意するもの
@@ -8,7 +16,7 @@
 
 - PC版 Need for Speed Most Wanted（2005）。対応対象はv1.3 ENのNFSPatcher版実行ファイル（通常版・4GB Patch適用版）です。別の実行ファイルでの動作は保証していません。
 - 32ビットのASIローダー。未導入の場合は [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader) の公式配布からWin32版を用意し、公式手順に従って導入してください。ローダーが既に入っている場合はそのまま使用してください。
-- 曲を追加する場合は、お手持ちのMP3・WAV、またはPC版Underground 2のインストール済みデータ。
+- 曲を追加する場合は、お手持ちのMP3・WAV・M4A、またはPC版Underground 2のインストール済みデータ。
 - 変換データを保存できるディスク空き容量。生成データはMP3より大きくなり、再生成時には新旧両方を置く容量が必要です。
 
 ゲーム本体、ASIローダー、UG2音源は付属しません。音楽の変換に必要なプログラムは付属しているため、Pythonや音声編集ソフトの追加インストールは不要です。
@@ -17,7 +25,7 @@
 
 ### インストール
 
-1. ゲームを終了してZIPを展開します。
+1. ゲームを終了してCoreとRuntimeの7zを展開します。
 2. 展開した `scripts` フォルダーを、MWのゲーム実行ファイルと同じフォルダーへコピーします。`scripts` の中にもう一つ `scripts` を作らないでください。
 3. 下の説明に従って音源を追加します。The Run音源を追加しなくても、通常曲の追加機能を利用できます。The Runの追跡BGMは別配布のコンバーターで追加できます。
 4. ゲームを起動します。初回の再生データ生成には数分以上かかる場合があります。「生成中」画面が出ている間は完了を待ってください。
@@ -32,7 +40,7 @@
     NFSMWEATraxExpansion.asi
     NFSMWEATraxExpansion/
       NFSMWEATraxExpansion.ini
-      Tracks/           MP3・WAVを置く場所
+      Tracks/           MP3・WAV・M4Aを置く場所
       UG2MusicSFx/      UG2から取り出した2ファイルを置く場所
       Pursuit/          任意のThe Run変換後に作成される追跡BGM
       Runtime/          変換用プログラム（そのまま使用）
@@ -42,9 +50,11 @@
 
 走行中の曲名パネルは、画面の縦横比に合わせて左上へ配置します。メイン／ガレージメニューの位置は従来どおりです。別のHUD配置MODで位置を調整する場合は、ゲーム終了中にINIの `[Main]` にある `HudAspectAssist` を `0` にしてください。初期値は `1`（有効）です。
 
-### MP3・WAVを追加する
+### MP3・WAV・M4Aを追加する
 
 ゲーム終了中に `Tracks` にファイルをコピーします。サブフォルダーも使用できます。曲の追加・削除・差し替え後は次回起動時に必要なデータが生成されます。完了通知が出たらゲームを起動し直してください。
+
+同名INIがない場合は、音源の曲名・アーティスト・アルバムタグからUTF-16 LEのINIを自動生成します。Track欄には英字表記、OriginalMetadata欄には元の情報を保存し、日本語表示が有効なら元の情報を表示します。読みタグがあれば優先し、不明な読みは推定するため、人名・固有名詞は必要に応じて修正してください。既存INIは上書きしません。タグがない曲名にはファイル名を使用します。M4AはAAC・ALACに対応し、DRMで保護された音源は対象外です。
 
 曲名・アーティスト名を指定したい場合は、音源と同じ場所に同名のINIを作成します。例：`My Song.mp3` と `My Song.ini`。INIは省略できます。日本語を含むINIは「UTF-16 LE（BOM付き）」で保存してください。
 
@@ -56,7 +66,7 @@ Album=My Album
 Mode=ALL
 ```
 
-`Mode` は `FE`（メニュー）、`IG`（走行中）、`ALL`（両方）から選べます。追加できる通常曲はUG2曲と合わせて最大94曲です。MP3・WAVをファイル名順に取り込み、その後にUG2曲を追加します。UG2の27曲をすべて使う場合、MP3・WAVは67曲以内にしてください。
+`Mode` は `FE`（メニュー）、`IG`（走行中）、`ALL`（両方）から選べます。追加できる通常曲はUG2曲と合わせて最大94曲です。MP3・WAV・M4Aをファイル名順に取り込み、その後にUG2曲を追加します。UG2の27曲をすべて使う場合、MP3・WAV・M4Aは67曲以内にしてください。
 
 ### Underground 2の音源を用意する
 
@@ -77,11 +87,11 @@ UG2MusicSFx/
   MusicSFx.metadata.ini   ← 付属の曲情報。残してください
 ```
 
-2ファイルは同じUG2アーカイブから取り出した組で使用します。27曲分の表示情報は付属の `MusicSFx.metadata.ini` に設定済みです。ゲーム起動後の生成と再起動の手順は、MP3・WAVの場合と同じです。
+2ファイルは同じUG2アーカイブから取り出した組で使用します。27曲分の表示情報は付属の `MusicSFx.metadata.ini` に設定済みです。ゲーム起動後の生成と再起動の手順は、MP3・WAV・M4Aの場合と同じです。
 
 ### The Runの追跡BGMを追加する（任意）
 
-本パッケージにはThe Runの音源を含みません。MP3・WAV・UG2曲の追加機能は、The Runなしで動作します。追跡時はMW標準BGMを使用します。
+本パッケージにはThe Runの音源を含みません。MP3・WAV・M4A・UG2曲の追加機能は、The Runなしで動作します。追跡時はMW標準BGMを使用します。
 
 1. PC版The Runをインストールします。
 2. 別配布の `TheRunPursuitConverter.exe` をダウンロードして起動します。MWを終了しておいてください。
@@ -94,9 +104,9 @@ UG2MusicSFx/
 
 `NFSMWEATraxExpansion.ini` をテキストエディターで開くと、各項目の日英説明を読めます。最初は変更不要です。設定名・曲名はそのままにし、右側の値だけを変更してください。
 
-- `[Main]`：MOD全体、MP3・WAVの取り込み、UG2曲の取り込み、追加通常曲の音量、曲数上限を設定します。変更はゲーム終了中に行います。音量を変えると通常曲の再変換が必要です。
+- `[Main]`：MOD全体、MP3・WAV・M4Aの取り込み、UG2曲の取り込み、追加通常曲の音量、曲数上限を設定します。変更はゲーム終了中に行います。音量を変えると通常曲の再変換が必要です。
 - `[Pursuit]`：変換済みのThe Run 8曲とMW標準追跡BGMから、追跡開始ごとにランダムで選びます。曲の `true` は使用、`false` は除外です。`Vanilla` はMW標準追跡BGMです。同じ曲が続く場合があります。
-- `Mode=Random` と `Mode=List` はどちらも有効な曲からランダムで選びます。順番再生にはなりません。全曲を無効にした場合はMW標準BGMになります。
+- `Mode=Random` は各曲のtrue/falseを無視し、MW標準と導入済みの全追跡曲から選びます。`Mode=List` はtrueの曲だけからランダムで選びます。未指定の曲はListでは除外し、対象が空ならMW標準BGMを使用します。
 - 特定の追跡曲だけを使う場合は `TestMode=true` にし、`TestTrack` にリストの曲名をそのまま指定します。通常のランダム選曲へ戻すには `TestMode=false` にします。
 
 曲別設定は次の追跡開始時に反映されます。再生中の曲は途中で切り替わりません。`Enabled` の変更後はゲームを起動し直してください。The Run追跡BGMの音量はコンバーターで調整されます。`Pursuit/Pursuit.ini` は編集不要です。
@@ -117,7 +127,7 @@ Use 64-bit Windows 10/11. The ASI itself targets the 32-bit MW game.
 
 - Need for Speed Most Wanted (2005), PC edition. The supported executable is NFSPatcher for v1.3 EN, both unpatched and with the 4GB Patch applied. Compatibility with other executables is not guaranteed.
 - A 32-bit ASI loader. If needed, obtain the Win32 version of [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader) and follow its official installation instructions. Keep your existing loader if one is already installed.
-- Your own MP3/WAV files or an installed PC copy of Underground 2, if you want to add music.
+- Your own MP3/WAV/M4A files or an installed PC copy of Underground 2, if you want to add music.
 - Free disk space for converted audio. Generated data can be larger than the MP3 originals; rebuilding requires room for both old and new data.
 
 The game, ASI loader and UG2 audio are not included. Audio conversion programs are included; no separate Python or audio editor installation is needed.
@@ -126,7 +136,7 @@ Added EA TRAX songs and pursuit music use EA-XA compressed playback caches that 
 
 ### Installation
 
-1. Close the game and extract this ZIP.
+1. Close the game and extract both the Core and Runtime 7z packages.
 2. Copy its `scripts` folder into the folder containing the MW executable. Do not create a second `scripts` folder inside the first.
 3. Add music using the instructions below. The Run pursuit music is optional and is prepared using the separately available converter.
 4. Start the game. First-time generation may take several minutes or longer. Wait while the generation screen is displayed.
@@ -139,7 +149,7 @@ Game folder/
     NFSMWEATraxExpansion.asi
     NFSMWEATraxExpansion/
       NFSMWEATraxExpansion.ini
-      Tracks/           Your MP3/WAV files
+      Tracks/           Your MP3/WAV/M4A files
       UG2MusicSFx/      The two extracted UG2 files
       Pursuit/          Optional pursuit music created by the converter
       Runtime/          Conversion programs; keep as supplied
@@ -149,9 +159,11 @@ Game folder/
 
 The in-world song panel is positioned at the upper left for your screen's aspect ratio. Main and garage menu positions stay unchanged. If you use another MOD to position this HUD, close the game and set `HudAspectAssist=0` under `[Main]` in the INI. The default is `1` (enabled).
 
-### Adding MP3/WAV music
+### Adding MP3/WAV/M4A music
 
 With the game closed, copy audio files into `Tracks`. Subfolders are supported. Adding, removing or replacing music triggers the necessary generation on the next launch. Restart the game when the completion notice appears.
+
+When no matching INI exists, title, artist and album tags create a UTF-16 LE INI automatically. Track fields retain romanized text; OriginalMetadata retains the original text used when Japanese display is enabled. Reading tags are preferred; unknown readings are estimated and can be corrected manually, especially for names. Existing INIs are never overwritten. Missing title tags fall back to the filename. M4A supports AAC and ALAC; DRM-protected audio is not supported.
 
 To specify display information, create an optional INI next to the audio with the same base name, such as `My Song.mp3` and `My Song.ini`. Save INIs containing Japanese text as UTF-16 LE with BOM.
 
@@ -163,7 +175,7 @@ Album=My Album
 Mode=ALL
 ```
 
-Choose `FE` for menus, `IG` for driving or `ALL` for both. The total limit is 94 added normal tracks, including UG2 music. MP3/WAV files are imported in filename order, followed by UG2 tracks. To include all 27 UG2 songs, use no more than 67 MP3/WAV tracks.
+Choose `FE` for menus, `IG` for driving or `ALL` for both. The total limit is 94 added normal tracks, including UG2 music. MP3/WAV/M4A files are imported in filename order, followed by UG2 tracks. To include all 27 UG2 songs, use no more than 67 MP3/WAV/M4A tracks.
 
 ### Preparing Underground 2 music
 
@@ -184,11 +196,11 @@ UG2MusicSFx/
   MusicSFx.metadata.ini   ← Included track information; keep this file
 ```
 
-Use a matching pair from the same UG2 archive. Display information for its 27 songs is already supplied in `MusicSFx.metadata.ini`. Start the game, wait for generation and restart when prompted, just as for MP3/WAV music.
+Use a matching pair from the same UG2 archive. Display information for its 27 songs is already supplied in `MusicSFx.metadata.ini`. Start the game, wait for generation and restart when prompted, just as for MP3/WAV/M4A music.
 
 ### Adding The Run pursuit music (optional)
 
-The Run audio is not included. MP3/WAV and UG2 imports work without The Run; pursuits use stock MW music until a pursuit pack is installed.
+The Run audio is not included. MP3/WAV/M4A and UG2 imports work without The Run; pursuits use stock MW music until a pursuit pack is installed.
 
 1. Install your PC copy of The Run.
 2. Download and open the separately supplied `TheRunPursuitConverter.exe`. Close MW first.
@@ -201,9 +213,9 @@ The converter uses FFmpeg from your installed MOD. No separate Python or audio t
 
 Open `NFSMWEATraxExpansion.ini` in a text editor for Japanese and English explanations of each setting. The defaults are ready to use. Keep setting names and song names unchanged; edit only the values on the right.
 
-- `[Main]` controls the MOD, MP3/WAV and UG2 imports, added normal-track volume and the track limit. Edit these settings with the game closed. Changing volume requires normal tracks to be converted again.
+- `[Main]` controls the MOD, MP3/WAV/M4A and UG2 imports, added normal-track volume and the track limit. Edit these settings with the game closed. Changing volume requires normal tracks to be converted again.
 - `[Pursuit]` randomly chooses from the eight converted The Run scores and stock MW pursuit music at each pursuit start. Set a song to `true` to include it or `false` to exclude it. `Vanilla` means stock MW pursuit music. Repeats are possible.
-- Both `Mode=Random` and `Mode=List` select randomly from enabled songs, rather than playing in order. If all songs are disabled, stock music is used.
+- `Mode=Random` ignores per-song switches and selects from stock music and all installed pursuit scores. `Mode=List` selects randomly only from songs set to true. Unspecified songs are excluded from List; an empty list falls back to stock music.
 - To use one specific pursuit score, set `TestMode=true` and copy its exact listed name into `TestTrack`. Return to normal random selection with `TestMode=false`.
 
 Song switches take effect at the next pursuit start without interrupting the current music. Restart after changing `Enabled`. The converter adjusts pursuit score volume separately. You do not need to edit `Pursuit/Pursuit.ini`.

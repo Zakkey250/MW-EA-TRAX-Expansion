@@ -1,8 +1,9 @@
-#include "Catalog.h"
+﻿#include "Catalog.h"
 #include "Logging.h"
 #include "RuntimeHooks.h"
 #include "Utilities.h"
 #include "StartupWait.h"
+#include "UpdateNotice.h"
 
 #include <Windows.h>
 
@@ -14,7 +15,7 @@
 namespace eatrax {
 namespace {
 
-constexpr wchar_t kPluginVersion[] = L"0.4.7";
+constexpr wchar_t kPluginVersion[] = L"0.4.8";
 constexpr std::uintmax_t kSupportedExecutableSize = 6033408;
 constexpr char kSupportedExecutableSha256[] =
     "05873CF968E0BDD021C1E67FF22E9350D22E7F433F1D749323FA6AE27F504700";
@@ -30,10 +31,13 @@ HANDLE g_cancel = nullptr;
 bool g_activationAttempted = false;
 bool g_addonActive = false;
 bool g_restartRequired = false;
+std::wstring g_runtimeProblem;
+bool g_noticeEligible = false;
 
 // Called on the game thread where MusicFlow sets its two bank filenames.
 // The loader lock is no longer held here; the worker only prepares/validates data.
 void __cdecl ConfigureBankNames(void* musicFlow) {
+    const bool first = !g_activationAttempted;
     if (!g_activationAttempted) {
         g_activationAttempted = true;
         startup::SelectLanguage(g_module);
@@ -56,6 +60,7 @@ void __cdecl ConfigureBankNames(void* musicFlow) {
     auto* object = static_cast<unsigned char*>(musicFlow);
     *reinterpret_cast<const char**>(object + 0x38) = g_addonActive ? "EA_TRAX.mpf" : "MW_Music.mpf";
     *reinterpret_cast<const char**>(object + 0x3c) = g_addonActive ? "EA_TRAX.mus" : "MW_Music.mus";
+    if(first && WaitForSingleObject(g_prepared,0)==WAIT_OBJECT_0 && g_noticeEligible) StartNotices(g_module,g_runtimeProblem);
     if (g_addonActive) Log(LogLevel::Info, "Native bank files: scripts/NFSMWEATraxExpansion/Cache/EA_TRAX.mpf + EA_TRAX.mus (local generated cache)");
 }
 
@@ -215,6 +220,12 @@ DWORD WINAPI InitializePlugin(void*) {
         return 0;
     }
 
+    g_noticeEligible = true;
+    g_runtimeProblem = RuntimeProblem(modRoot);
+    if(!g_runtimeProblem.empty()) {
+        Log(LogLevel::Warning,"Runtime incomplete; stock bank retained: %s",WideToUtf8(g_runtimeProblem).c_str());
+        return 0;
+    }
     if (!PrepareNativeCache(modRoot)) {
         Log(LogLevel::Error, "Cache preparation failed; vanilla bank retained. See Cache/Build.log");
         return 0;

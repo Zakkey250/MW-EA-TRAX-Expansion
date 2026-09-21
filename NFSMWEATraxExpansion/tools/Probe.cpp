@@ -27,6 +27,36 @@ namespace {
 int SelfTest() {
     using namespace eatrax;
     bool ok = true;
+    unsigned listReads = 0;
+    auto subset = [&] { ++listReads; return std::vector<std::size_t>{2,8}; };
+    std::array<unsigned,9> randomGroups{};
+    for(unsigned r=0;r<900;++r) {
+        ++randomGroups[SelectConfiguredPursuitGroup(L"random",8,subset,r)];
+        ok = ok && SelectConfiguredPursuitGroup(L"invalid",8,subset,r)==r%9;
+    }
+    ok = ok && listReads==0;
+    for(auto count:randomGroups)ok = ok && count==100;
+    for(unsigned r=0;r<100;++r) {
+        ok = ok && SelectConfiguredPursuitGroup(L"list",8,subset,r)==(r%2?8:2);
+        ok = ok && SelectConfiguredPursuitGroup(L"list",8,[]{return std::vector<std::size_t>{};},r)==0;
+        ok = ok && SelectConfiguredPursuitGroup(L"random",0,subset,r)==0;
+    }
+    ok = ok && listReads==100;
+    wchar_t tempDirectory[MAX_PATH]{}, fixture[MAX_PATH]{};
+    if(GetTempPathW(MAX_PATH,tempDirectory) && GetTempFileNameW(tempDirectory,L"etp",0,fixture)) {
+        CatalogResult configured;
+        configured.config.iniPath=fixture;
+        for(const auto& score:kPursuitScores) { Track track{};track.eventId=score.event;configured.pursuitTracks.push_back(track); }
+        WritePrivateProfileStringW(L"Pursuit",L"Vanilla",L"false",fixture);
+        WritePrivateProfileStringW(L"Pursuit",kPursuitScores[7].key,L"true",fixture);
+        ok = ok && EnabledPursuitList(configured)==std::vector<std::size_t>{8};
+        WritePrivateProfileStringW(L"Pursuit",L"Vanilla",L"true",fixture);
+        ok = ok && EnabledPursuitList(configured)==std::vector<std::size_t>({0,8});
+        WritePrivateProfileStringW(L"Pursuit",kPursuitScores[7].key,L"false",fixture);
+        ok = ok && EnabledPursuitList(configured)==std::vector<std::size_t>{0};
+        DeleteFileW(fixture); // The unique temporary INI created by this test only.
+    } else ok=false;
+    std::cout << (ok?"PASS":"FAIL") << " pursuit modes: Random includes all 9 groups without reading switches; List restricts selection; empty list and missing pack use stock\n";
     for(const auto dims:std::array<std::array<int,2>,5>{{{640,480},{1920,1080},{3440,1440},{3840,1600},{5120,1440}}}) {
         for(float scale: {1.0f,0.92f}) {
             const float aspect=static_cast<float>(dims[0])/dims[1];
@@ -265,7 +295,7 @@ int wmain(const int argc, wchar_t** argv) {
             const auto random = 1664525u * (run + 17u) + 1013904223u;
             const auto selected = test
                 ? SelectTestPursuitGroup(ReadIniString(ini, L"Pursuit", L"TestTrack", L"Vanilla"), catalog.pursuitTracks, run, valid)
-                : SelectListedPursuitGroup(EnabledPursuitList(catalog), random);
+                : SelectConfiguredPursuitGroup(mode,catalog.pursuitTracks.size(),[&]{return EnabledPursuitList(catalog);},random);
             std::cout << (selected ? (catalog.pursuitTracks[selected - 1].eventId & 0xFFFFFFu) : 0) << "\n";
         }
         return 0;
