@@ -46,6 +46,8 @@ struct Track {
 
 struct Config {
     bool enabled = true;
+    bool streamerMode = false;
+    std::filesystem::path cacheDirectory;
     bool loadExternalTracks = true;
     bool loadMusicSfx = true;
     float volumeMultiplier = 1.0f;
@@ -58,6 +60,7 @@ struct Config {
     std::filesystem::path statePath;
     std::filesystem::path logPath;
     bool enablePursuit = false;
+    bool heatKeeping = false;
     std::filesystem::path pursuitDirectory;
 };
 

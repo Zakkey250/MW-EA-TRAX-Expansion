@@ -1,6 +1,6 @@
 # EA TRAX Expansion — 導入ガイド / Installation guide
 
-0.4.8: Coreと対応するRuntimeの両方を7zから展開してください。The Run Converterは任意です。
+0.5.0: Coreと対応するRuntimeの両方を7zから展開してください。The Run Converterは任意です。
 Install both matching Core and Runtime 7z packages. The Run Converter is optional.
 Runtime / Converter: https://github.com/Zakkey250/MW-EA-TRAX-Expansion/releases
 更新時は既存INI・音源・追跡データ・Cacheを保持してください。Keep existing INIs, audio, pursuit data and Cache when updating.
@@ -227,3 +227,15 @@ Song switches take effect at the next pursuit start without interrupting the cur
 - Generation fails: check free space and write access to the folder. Details are recorded in `Cache/Build.log` and `NFSMWEATraxExpansion.log` inside the MOD folder.
 - Updating: close the game and back up your settings and added audio. Preserve configured INI files and transfer settings as needed.
 - Removing: close the game, move your added audio somewhere safe, then remove `scripts/NFSMWEATraxExpansion.asi` and the `scripts/NFSMWEATraxExpansion` folder.
+
+## Display and troubleshooting / 表示・トラブル調査
+
+At startup, missing settings and their explanations are added automatically from the ASI's embedded defaults. Existing values, comments, custom keys and encoding are preserved. A complete INI is not rewritten. / 起動時、本体INIの不足項目と説明を自動補完します。既存値・コメント・独自項目・文字コードを保持し、補完済みなら書き直しません。
+
+`[Main] SwapArtistAlbum=true` exchanges Artist/Album for all added songs. Live edits apply on the next native UI/HUD refresh; no per-song INI edits or cache generation are needed. Set false to restore the original presentation.
+
+`[Main] Logging=false` is the default. Set true and restart to capture runtime diagnostics. With logging off, diagnostic polling and log writes are skipped. Cache generation still keeps Build.log to explain generation errors. Summarize a playback incident before reporting; see Release-0.5.0.md for the requested context.
+
+`SwapArtistAlbum=true`で追加曲すべてのArtist/Album表示を本体INIだけで一括交換します。起動中の変更は次回の一覧・HUD更新時に反映されます。曲別INI変更やキャッシュ再生成は不要です。falseで元に戻ります。
+
+`Logging=false`が規定です。trueにして再起動すると調査ログを記録します。OFFでは診断状態の読み取りとログ出力を省きます。生成失敗を確認できるようキャッシュ生成のBuild.logは残ります。再生停止が起きた場合は、先に症状を簡潔にまとめてからご報告ください。

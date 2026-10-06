@@ -180,10 +180,10 @@ def create_sidecar(path, log=print, artist_readings=None):
             temporary.unlink(missing_ok=True)
 
 
-def prepare_sidecars(mod, enabled=True, log=print):
+def prepare_sidecars(mod, enabled=True, log=print, tracks_directory="Tracks"):
     if not enabled:
         return
-    tracks = Path(mod) / 'Tracks'
+    tracks = Path(mod) / tracks_directory
     files = [p for p in sorted(tracks.rglob('*'), key=lambda p: str(p).lower())
              if p.is_file() and p.suffix.lower() in EXTENSIONS]
     if all(p.with_suffix('.ini').exists() for p in files):

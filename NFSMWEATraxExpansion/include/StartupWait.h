@@ -1,9 +1,14 @@
 #pragma once
 #include <Windows.h>
 #include <string>
+#include <atomic>
 #include "StartupText.h"
 
 namespace eatrax::startup {
+inline std::atomic<bool> streamerMode{false};
+inline const wchar_t* StreamerCancelText() {
+    return std::wcscmp(currentText->language, L"Japanese") == 0 ? L"中止してゲームを終了" : L"Cancel and close game";
+}
 inline SRWLOCK progressLock = SRWLOCK_INIT;
 enum class Stage { Checking, Generating, Verifying, Complete };
 inline Stage progressStage = Stage::Checking;
@@ -20,7 +25,7 @@ inline void Cancel(HWND window, WaitContext& context) {
         context.cancelled = GetTickCount64();
         SetEvent(context.cancel);
         EnableWindow(GetDlgItem(window, IDCANCEL), FALSE);
-        SetDlgItemTextW(window, 100, currentText->cancelling);
+        SetDlgItemTextW(window, 100, streamerMode ? StreamerCancelText() : currentText->cancelling);
     }
 }
 inline INT_PTR CALLBACK Dialog(HWND window, UINT message, WPARAM wp, LPARAM lp) {
@@ -39,7 +44,7 @@ inline INT_PTR CALLBACK Dialog(HWND window, UINT message, WPARAM wp, LPARAM lp) 
         control(L"STATIC", currentText->intro,
                 0,18,16,client.right-36,48,101);
         control(L"STATIC", L"", 0,18,76,client.right-36,72,100);
-        control(L"BUTTON", currentText->cancel, WS_TABSTOP | BS_PUSHBUTTON,
+        control(L"BUTTON", streamerMode ? StreamerCancelText() : currentText->cancel, WS_TABSTOP | BS_PUSHBUTTON,
                 18,client.bottom-44,client.right-36,28,IDCANCEL);
         RECT rect{}; GetWindowRect(window,&rect);
         SetWindowPos(window, HWND_TOP, (GetSystemMetrics(SM_CXSCREEN)-(rect.right-rect.left))/2,

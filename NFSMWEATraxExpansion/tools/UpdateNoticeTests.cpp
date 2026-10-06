@@ -22,7 +22,7 @@ int main(int argc,char** argv) {
     std::filesystem::create_directories(temporary/L"Runtime");
     expect(!eatrax::RuntimeProblem(temporary).empty(),"missing inventory detected");
     auto inventory=[&](const char* body){std::ofstream(temporary/L"RuntimeRequired.json")<<body;};
-    inventory(R"({"schema":1,"version":"0.4.8","files":[{"path":"Runtime/BuildCache.exe","bytes":3}]})");
+    inventory(R"({"schema":1,"version":"0.5.0","files":[{"path":"Runtime/BuildCache.exe","bytes":3}]})");
     expect(!eatrax::RuntimeProblem(temporary).empty(),"missing runtime detected");
     std::ofstream(temporary/L"Runtime/BuildCache.exe")<<"123";
     expect(eatrax::RuntimeProblem(temporary).empty(),"complete runtime passes without notice");
@@ -30,7 +30,9 @@ int main(int argc,char** argv) {
     expect(!eatrax::RuntimeProblem(temporary).empty(),"truncated or mismatched file detected");
     inventory(R"({"schema":1,"version":"0.4.7","files":[]})");
     expect(!eatrax::RuntimeProblem(temporary).empty(),"incompatible inventory detected");
-    inventory(R"({"schema":1,"version":"0.4.8","files":[{"path":"Runtime/../../file","bytes":1}]})");
+    inventory(R"({"schema":1,"version":"0.4.8","files":[{"path":"Runtime/BuildCache.exe","bytes":1}]})");
+    expect(!eatrax::RuntimeProblem(temporary).empty(),"old runtime cannot recreate malformed frame headers");
+    inventory(R"({"schema":1,"version":"0.5.0","files":[{"path":"Runtime/../../file","bytes":1}]})");
     expect(!eatrax::RuntimeProblem(temporary).empty(),"escaping inventory path rejected");
     inventory("{");expect(!eatrax::RuntimeProblem(temporary).empty(),"malformed inventory fails closed");
     std::filesystem::remove_all(temporary); // Only this harness's PID-scoped temporary fixture.

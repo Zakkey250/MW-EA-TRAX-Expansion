@@ -4,10 +4,12 @@
 #include "Utilities.h"
 #include "StartupWait.h"
 #include "UpdateNotice.h"
+#include "IniCompletion.h"
 
 #include <Windows.h>
 
 #include <filesystem>
+#include <atomic>
 #include <cstring>
 #include <memory>
 #include <string>
@@ -15,7 +17,7 @@
 namespace eatrax {
 namespace {
 
-constexpr wchar_t kPluginVersion[] = L"0.4.8";
+constexpr wchar_t kPluginVersion[] = L"0.5.0";
 constexpr std::uintmax_t kSupportedExecutableSize = 6033408;
 constexpr char kSupportedExecutableSha256[] =
     "05873CF968E0BDD021C1E67FF22E9350D22E7F433F1D749323FA6AE27F504700";
@@ -31,6 +33,7 @@ HANDLE g_cancel = nullptr;
 bool g_activationAttempted = false;
 bool g_addonActive = false;
 bool g_restartRequired = false;
+std::atomic<bool> g_streamerRequested{false};
 std::wstring g_runtimeProblem;
 bool g_noticeEligible = false;
 
@@ -57,11 +60,19 @@ void __cdecl ConfigureBankNames(void* musicFlow) {
             if (!g_addonActive) Log(LogLevel::Error, "Addon bank activation refused: %s", error.c_str());
         }
     }
+    if (g_streamerRequested && !g_addonActive) {
+        const bool ja = std::wcscmp(startup::currentText->language, L"Japanese") == 0;
+        MessageBoxW(GetActiveWindow(), ja
+            ? L"ストリーマー用音源の準備に失敗したか、中止されました。純正曲を再生せずゲームを終了します。\r\nStreamerTracksの音源とStreamerCache/Build.logを確認してください。通常モードへ戻す場合はINIのStreamerMode=falseに設定してください。"
+            : L"Streamer music preparation failed or was cancelled. The game will close without playing stock songs.\r\nCheck StreamerTracks and StreamerCache/Build.log. Set StreamerMode=false in the INI to return to normal mode.",
+            L"EA TRAX Expansion - Streamer Mode", MB_OK | MB_ICONWARNING | MB_SETFOREGROUND);
+        ExitProcess(1);
+    }
     auto* object = static_cast<unsigned char*>(musicFlow);
     *reinterpret_cast<const char**>(object + 0x38) = g_addonActive ? "EA_TRAX.mpf" : "MW_Music.mpf";
     *reinterpret_cast<const char**>(object + 0x3c) = g_addonActive ? "EA_TRAX.mus" : "MW_Music.mus";
     if(first && WaitForSingleObject(g_prepared,0)==WAIT_OBJECT_0 && g_noticeEligible) StartNotices(g_module,g_runtimeProblem);
-    if (g_addonActive) Log(LogLevel::Info, "Native bank files: scripts/NFSMWEATraxExpansion/Cache/EA_TRAX.mpf + EA_TRAX.mus (local generated cache)");
+    if (g_addonActive) Log(LogLevel::Info, "Native bank profile: %s/EA_TRAX.mpf + EA_TRAX.mus", g_streamerRequested ? "StreamerCache" : "Cache");
 }
 
 __declspec(naked) void BankNamesGate() {
@@ -113,11 +124,12 @@ std::filesystem::path ModulePath(const HMODULE module) {
 
 bool PrepareNativeCache(const std::filesystem::path& root) {
     if (WaitForSingleObject(g_cancel,0)==WAIT_OBJECT_0) return false;
-    const auto progressPath=root / L"Cache" / L"Build.log";
+    const auto progressPath=root / (g_streamerRequested ? L"StreamerCache" : L"Cache") / L"Build.log";
     std::error_code sizeError;
     const auto oldSize=std::filesystem::file_size(progressPath,sizeError);
     const auto executable = root / L"Runtime" / L"BuildCache.exe";
     std::wstring command = L"\"" + executable.wstring() + L"\" --mod-root \"" + root.wstring() + L"\"";
+    command += g_streamerRequested ? L" --streamer-mode 1" : L" --streamer-mode 0";
     HANDLE job = CreateJobObjectW(nullptr, nullptr);
     if (!job) return false;
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
@@ -191,8 +203,14 @@ DWORD WINAPI InitializePlugin(void*) {
     const auto directory = modulePath.parent_path();
     const std::filesystem::path modRoot = directory.filename() == L"NFSMWEATraxExpansion"
         ? directory : directory / L"NFSMWEATraxExpansion";
+    const auto iniCompletion = ini::EnsureDefaults(modRoot / L"NFSMWEATraxExpansion.ini", g_module);
     const Config preliminaryConfig = LoadConfig(modRoot);
-    InitializeLogging(preliminaryConfig.logPath);
+    g_streamerRequested = preliminaryConfig.streamerMode;
+    startup::streamerMode = preliminaryConfig.streamerMode;
+    InitializeLogging(preliminaryConfig.logPath,ReadIniBool(preliminaryConfig.iniPath,L"Main",L"Logging",false));
+    if (!iniCompletion.ok) Log(LogLevel::Warning,"INI defaults completion failed (win32=%lu); existing file retained",iniCompletion.error);
+    else if (iniCompletion.added) Log(LogLevel::Info,"INI defaults: appended %u missing settings; existing values retained",static_cast<unsigned>(iniCompletion.added));
+    Log(LogLevel::Info, "StreamerMode=%d (startup snapshot)", g_streamerRequested.load());
     Log(LogLevel::Info, "Version %ls initializing", kPluginVersion);
     Log(LogLevel::Info, "Data root: %s", WideToUtf8(modRoot.wstring()).c_str());
 
@@ -212,7 +230,8 @@ DWORD WINAPI InitializePlugin(void*) {
     const bool legacy = executableSize == kSupportedExecutableSize &&
         (executableHash == kSupportedExecutableSha256 || executableHash == kStockIconExecutableSha256);
     const bool nfspatcher = executableSize == 6029312 && (executableHash == "80774C2E5D619B4F120B48D4462896FD504C263399D203A238769CFFDE1D253C" || executableHash == "B248271BF8EAC8C9B283B8C95E3ADD672B713BF529B05F1780E58268493B9D06");
-    if (sizeError || (!legacy && !nfspatcher)) {
+    const bool redux = executableSize == 5926912 && executableHash == "0C5675A08CD71FD6D31CA87E992A915054BD8B80D268BFF0561D7ECC2067E342";
+    if (sizeError || (!legacy && !nfspatcher && !redux)) {
         Log(LogLevel::Error,
             "Unsupported executable; fail-closed without hooks (expected size=%llu sha256=%s)",
             static_cast<unsigned long long>(kSupportedExecutableSize),
@@ -260,7 +279,11 @@ DWORD WINAPI InitializePlugin(void*) {
     }
 
     auto catalog =
-        std::make_unique<CatalogResult>(LoadCatalog(modRoot, allowMusicSfxCodec));
+        std::make_unique<CatalogResult>(LoadCatalog(modRoot, allowMusicSfxCodec, g_streamerRequested ? 1 : 0));
+    if (g_streamerRequested && catalog->tracks.empty()) {
+        Log(LogLevel::Error, "StreamerTracks is empty; refusing standard music fallback");
+        return 0;
+    }
     std::string nativeError;
     if (!LoadNativeMusic(*catalog, &nativeError)) {
         Log(LogLevel::Error, "Native music registration refused: %s; no external-player fallback", nativeError.c_str());

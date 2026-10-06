@@ -6,17 +6,19 @@ Research, exchange of ideas and personal use (including local modifications/buil
 
 研究・意見交換・個人利用（個人用の改変・ビルドを含む）は可能です。再配布および改変物のビルド配布には事前の明示的な許可が必要です。[利用条件](LICENSE.md)を確認してください。第三者ライセンスと過去に付与済みの権利は維持します。
 
-Source code for **version 0.4.8**, an ASI mod for Need for Speed Most Wanted (2005), and its optional The Run Pursuit Converter.
+**Version 0.5.0 — stable release.** / バージョン0.5.0 正式版。
 
-**[Build instructions / ビルド手順](NFSMWEATraxExpansion/docs/BUILD-048.md)** · **[Installation guide / 導入ガイド](NFSMWEATraxExpansion/docs/User-Guide.md)** · **[Converter guide / コンバーター](NFSMWEATraxExpansion/docs/Converter-README.md)**
+Source code for **version 0.5.0**, an ASI mod for Need for Speed Most Wanted (2005), and its optional The Run Pursuit Converter.
 
-**[Downloads / ダウンロード](https://github.com/Zakkey250/MW-EA-TRAX-Expansion/releases/latest)** · **[0.4.8 changes / 修正内容](NFSMWEATraxExpansion/docs/Release-0.4.8.md)**
+**[Build instructions / ビルド手順](NFSMWEATraxExpansion/docs/BUILD-050.md)** · **[Installation guide / 導入ガイド](NFSMWEATraxExpansion/docs/User-Guide.md)** · **[Converter guide / コンバーター](NFSMWEATraxExpansion/docs/Converter-README.md)**
+
+**[Downloads / ダウンロード](https://github.com/Zakkey250/MW-EA-TRAX-Expansion/releases/tag/v0.5.0)** · **[0.5.0 changes / 修正内容](NFSMWEATraxExpansion/docs/Release-0.5.0.md)**
 
 ## Packages / 配布ファイル
 
 Install Core + Runtime from the same release. The Run Converter is optional. / 同じ版のCoreとRuntimeの両方を導入してください。The Run Converterは任意です。
 
-[Installation / 導入](NFSMWEATraxExpansion/docs/Split-Install-0.4.8.md)
+[Installation / 導入](NFSMWEATraxExpansion/docs/Split-Install-0.5.0.md)
 
 ## English
 
@@ -45,26 +47,26 @@ From the repository root:
 ```powershell
 python -m pip install PyInstaller==6.21.0
 python -m pip install --target NFSMWEATraxExpansion/runtime/vendor -r NFSMWEATraxExpansion/runtime/requirements.txt
-./NFSMWEATraxExpansion/tools/Build-048.ps1
+./NFSMWEATraxExpansion/tools/Build-050.ps1
 ```
 
 To build only the native projects and converter, omit the Python dependency installation and run:
 
 ```powershell
-./NFSMWEATraxExpansion/tools/Build-048.ps1 -SkipRuntime
+./NFSMWEATraxExpansion/tools/Build-050.ps1 -SkipRuntime
 ```
 
 See the full build instructions for outputs, tests, rebuilding vgmstream, and obtaining the exact FFmpeg build needed for player packaging.
 
 ## 日本語
 
-バージョン0.4.8のMOD本体と、任意導入のThe Runコンバーターのソースです。お手持ちのMP3・WAV・M4AやUnderground 2の曲をEA TRAXへ追加し、任意でThe Runの追跡BGMを取り込めます。
+バージョン0.5.0のMOD本体と、任意導入のThe Runコンバーターのソースです。お手持ちのMP3・WAV・M4AやUnderground 2の曲をEA TRAXへ追加し、任意でThe Runの追跡BGMを取り込めます。
 
 ゲームEXE、ゲーム音源、生成済みキャッシュ、セーブ、利用者の設定は含みません。`converter/graph.mpf`は音声を含まない再生制御データです。
 
 Windows x64、Visual StudioのC++ v143ツール、Windows SDKを使用します。キャッシュ生成ツールにはCPython 3.14.5 x64とPyInstaller 6.21.0が必要です。コンバーターはWindowsの.NET Framework C#コンパイラーを使用します。上記コマンドはリポジトリのルートで実行してください。
 
-配布版の再ビルドに必要なヘッダー、vgmstream静的ライブラリ、mpg123のリンク依存ファイル、および対応するvgmstreamソースを含めています。導入用ZIPではありません。詳細は[ビルド手順](NFSMWEATraxExpansion/docs/BUILD-048.md)をご覧ください。
+配布版の再ビルドに必要なヘッダー、vgmstream静的ライブラリ、mpg123のリンク依存ファイル、および対応するvgmstreamソースを含めています。導入用ZIPではありません。詳細は[ビルド手順](NFSMWEATraxExpansion/docs/BUILD-050.md)をご覧ください。
 
 ## Credits and licenses
 

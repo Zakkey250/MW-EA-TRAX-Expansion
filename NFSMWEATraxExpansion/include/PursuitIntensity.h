@@ -4,6 +4,18 @@
 #include <cstdint>
 
 namespace eatrax {
+inline bool CanAdaptPursuitMusic(int musicState, bool started, bool selected) {
+    return musicState == 1 && started && selected;
+}
+struct PursuitPressureLogState {
+    int bucket = -1;
+    std::uint32_t tick = 0;
+    bool Due(int corrected, std::uint32_t now) {
+        const int next = corrected <= 42 ? 0 : corrected <= 84 ? 1 : 2;
+        if (next == bucket && now - tick < 8000u) return false;
+        bucket = next; tick = now; return true;
+    }
+};
 inline float PursuitPressure(float heat, int cops, float kmh) {
     const auto unit = [](float x) { return std::clamp(x, 0.0f, 1.0f); };
     const float h = unit((heat - 1.0f) / 4.0f);

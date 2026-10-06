@@ -1,6 +1,40 @@
 """Pathfinder v5.1 serialization and EA PCM streaming. No game assets embedded."""
 import struct, wave
 
+def positive_patch(tag, value):
+    if not 0 <= value <= 0x7fffffff:raise ValueError('SCHl positive value out of range')
+    width=max(1,(value.bit_length()+1+7)//8)
+    return bytes([tag,width])+value.to_bytes(width,'big')
+
+def repair_frame_header(body):
+    """Repair our cached positive frame count; keep other patches unchanged.
+
+    The caller must validate the unsigned count against the SCDl frame sum
+    before publishing. Never reinterpret an intentional negative sentinel.
+    """
+    if body[:4]!=b'PT\x00\x00':return body,None
+    result=bytearray(body[:4]);i=4;expected=None
+    while i<len(body):
+        start=i;tag=body[i];i+=1
+        if tag==255:
+            result.append(tag)
+            result.extend(bytes((-len(result))%4))
+            return (bytes(result),expected) if expected is not None else (body,None)
+        if tag in (252,253,254):result.append(tag);continue
+        if i>=len(body):raise ValueError('Truncated SCHl patch length')
+        length=body[i];i+=1
+        if length==255:
+            if i+4>len(body):raise ValueError('Truncated SCHl extended length')
+            length=int.from_bytes(body[i:i+4],'big');i+=4
+        if i+length>len(body):raise ValueError('Truncated SCHl patch payload')
+        value=body[i:i+length];i+=length
+        if tag==0x85 and 1<=length<4 and value[0]&128:
+            if expected is not None:raise ValueError('Duplicate SCHl frame count')
+            expected=int.from_bytes(value,'big')
+            result.extend(positive_patch(tag,expected))
+        else:result.extend(body[start:i])
+    raise ValueError('Missing SCHl header terminator')
+
 def compressed_stream(wav,destination,probe,run):
     raw=destination.with_suffix('.pcm')
     try:
@@ -122,7 +156,7 @@ def pcm_stream(wav,destination):
         if w.getparams()[:3]!=(2,2,36000):raise ValueError('Expected stereo PCM16 36kHz')
         frames=w.getnframes()
         def patch(tag,value):
-            raw=value.to_bytes(max(1,(value.bit_length()+7)//8),'big');return bytes([tag,len(raw)])+raw
+            return positive_patch(tag,value)
         def block(tag,data):f.write(tag+struct.pack('<I',8+len(data))+data)
         header=b'PT\x00\x00'+patch(0x80,3)+patch(0x81,16)+patch(0x82,2)+patch(0x84,36000)+patch(0x85,frames)+patch(0xA0,8)+b'\xff'
         header+=bytes((-len(header))%4);block(b'SCHl',header)

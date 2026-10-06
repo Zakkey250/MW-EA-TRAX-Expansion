@@ -221,16 +221,20 @@ void LoadLoudness(CatalogResult& result) {
 
 }  // namespace
 
-Config LoadConfig(const std::filesystem::path& modRoot) {
+Config LoadConfig(const std::filesystem::path& modRoot, int streamerOverride) {
     Config config;
     config.modRoot = modRoot;
     config.iniPath = modRoot / L"NFSMWEATraxExpansion.ini";
-    config.tracksDirectory = modRoot / L"Tracks";
+    config.streamerMode = streamerOverride < 0
+        ? ReadIniBool(config.iniPath, L"Main", L"StreamerMode", false) : streamerOverride != 0;
+    config.tracksDirectory = modRoot / (config.streamerMode ? L"StreamerTracks" : L"Tracks");
+    config.cacheDirectory = modRoot / (config.streamerMode ? L"StreamerCache" : L"Cache");
     config.musicSfxDirectory = modRoot / L"UG2MusicSFx";
     config.musicSfxManifest = modRoot / L"UG2MusicSFx" / L"MusicSFx.metadata.ini";
-    config.statePath = modRoot / L"State.ini";
+    config.statePath = modRoot / (config.streamerMode ? L"StreamerState.ini" : L"State.ini");
     config.logPath = modRoot / L"NFSMWEATraxExpansion.log";
     config.enablePursuit = ReadIniBool(config.iniPath, L"Pursuit", L"Enabled", false);
+    config.heatKeeping = ReadIniBool(config.iniPath, L"Pursuit", L"Heat1To3EATraxKeeping", false);
     config.pursuitDirectory = modRoot / L"Pursuit";
     config.enabled = ReadIniBool(config.iniPath, L"Main", L"Enabled", true);
     config.loadExternalTracks =
@@ -242,12 +246,13 @@ Config LoadConfig(const std::filesystem::path& modRoot) {
     config.maxCustomTracks =
         std::clamp<std::uint32_t>(ReadIniUInt(config.iniPath, L"Main", L"MaxCustomTracks", 94),
                                   1, 94);
+    if (config.streamerMode) { config.loadExternalTracks = true; config.loadMusicSfx = false; }
     return config;
 }
 
-CatalogResult LoadCatalog(const std::filesystem::path& modRoot, const bool allowMusicSfxCodec) {
+CatalogResult LoadCatalog(const std::filesystem::path& modRoot, const bool allowMusicSfxCodec, int streamerOverride) {
     CatalogResult result;
-    result.config = LoadConfig(modRoot);
+    result.config = LoadConfig(modRoot, streamerOverride);
     if (!result.config.enabled) {
         return result;
     }
@@ -262,18 +267,22 @@ CatalogResult LoadCatalog(const std::filesystem::path& modRoot, const bool allow
 }
 
 bool LoadNativeMusic(CatalogResult& catalog, std::string* error) {
-    const auto cacheHash = [&](const std::filesystem::path& p) { return CachedBankHash(p, catalog.config.modRoot / L"Cache"); };
-    const auto profile = catalog.config.modRoot / L"Cache" / L"NativeMusic.ini";
+    const auto cacheHash = [&](const std::filesystem::path& p) { return CachedBankHash(p, catalog.config.cacheDirectory); };
+    const auto profile = catalog.config.cacheDirectory / L"NativeMusic.ini";
     const auto game = (catalog.config.modRoot / L"..\\..").lexically_normal();
     const auto mpfHash = WideToUtf8(ReadIniString(profile, L"NativeMusic", L"MpfSHA256", L""));
     const auto musHash = WideToUtf8(ReadIniString(profile, L"NativeMusic", L"MusSHA256", L""));
     if (ReadIniUInt(profile, L"NativeMusic", L"Version", 0) != 2 ||
         mpfHash.size() != 64 || musHash.size() != 64 ||
-        cacheHash(catalog.config.modRoot / L"Cache" / L"EA_TRAX.mpf") != mpfHash ||
-        cacheHash(catalog.config.modRoot / L"Cache" / L"EA_TRAX.mus") != musHash ||
+        cacheHash(catalog.config.cacheDirectory / L"EA_TRAX.mpf") != mpfHash ||
+        cacheHash(catalog.config.cacheDirectory / L"EA_TRAX.mus") != musHash ||
         cacheHash(game / L"SOUND\\PFDATA\\MW_Music.mpf") != "15C7FDAA626940319A74965D4D68DB1507475BA743D574C5AA6DE214482E785B" ||
         cacheHash(game / L"SOUND\\PFDATA\\MW_Music.mus") != "BB191D34C4C3AC3B5BD33A9E02049A08DF13014E4FB5C8D7D07320ABAE1C5811") {
         if (error) *error = "NativeMusic.ini or native MPF/MUS identity mismatch; rebuild the native bank";
+        return false;
+    }
+    if (ReadIniBool(profile, L"NativeMusic", L"StreamerMode", false) != catalog.config.streamerMode) {
+        if (error) *error = "Music cache profile does not match StreamerMode";
         return false;
     }
     const float bakedMultiplier = ReadIniFloat(profile, L"NativeMusic", L"VolumeMultiplier", NAN);
@@ -325,7 +334,7 @@ bool LoadNativeMusic(CatalogResult& catalog, std::string* error) {
     }
     // Part IDs are node indices in the verified addon bank. Read its actual
     // bound so another appended score does not depend on the first two banks.
-    std::ifstream bank(catalog.config.modRoot / L"Cache" / L"EA_TRAX.mpf", std::ios::binary);
+    std::ifstream bank(catalog.config.cacheDirectory / L"EA_TRAX.mpf", std::ios::binary);
     unsigned char header[20]{};
     if (!bank.read(reinterpret_cast<char*>(header), sizeof(header))) {
         if (error) *error = "Cannot read native bank node count";

@@ -10,6 +10,7 @@
 #include "Loudness.h"
 #include "EaXaEncoder.h"
 #include "TraxHudAspect.h"
+#include "HeatKeeping.h"
 
 #include <Windows.h>
 
@@ -27,6 +28,131 @@ namespace {
 int SelfTest() {
     using namespace eatrax;
     bool ok = true;
+    {
+        bool patchesOk = true;
+        for (uint32_t value : {0u,127u,128u,255u,32767u,32768u,36000u,65535u,
+                              65536u,8388607u,8388608u,10501895u,16777215u,2147483647u}) {
+            std::vector<uint8_t> bytes;
+            eax::Patch(bytes,0x85,value);
+            uint32_t decoded=0;
+            for (std::size_t i=2;i<bytes.size();++i) decoded=(decoded<<8)|bytes[i];
+            if (bytes[1]<4 && bytes[2]&128) decoded|=0xffffffffu<<(8*bytes[1]);
+            patchesOk=patchesOk && decoded==value && bytes[0]==0x85;
+        }
+        ok=ok && patchesOk;
+        std::cout << (patchesOk?"PASS":"FAIL") << " SCHl signed patch boundaries and long-song frame count\n";
+    }
+    {
+        unsigned failures = 0;
+        auto check = [&](bool passed) { if (!passed) ++failures; };
+        HeatKeepingState heat;
+        for (float value : {1.0f, 2.0f, 3.0f, 3.999f})
+            check(heat.Observe(true, true, true, value, 1, 0, 100));
+        heat.DeferIntro(1, 100);
+        check(heat.TakeIntro() == -1);
+        check(heat.Observe(true, true, true, 3.99f, 1, 2, 200)); // cooldown
+        check(!heat.Observe(true, true, true, 4, 1, 0, 300));
+        check(heat.TakeIntro() == 1);
+        check(heat.TakeIntro() == -1); // exactly once
+        check(!heat.Observe(true, true, true, 2, 1, 0, 400)); // no oscillation
+        check(!heat.Observe(true, true, true, 2, 1, 4, 500)); // escape clears
+        check(!heat.escalated);
+        check(heat.Observe(true, true, true, 2, 2, 0, 600)); // next pursuit
+        heat.DeferIntro(1, 600);
+        check(!heat.Observe(true, true, true, 2, 2, 3, 700)); // arrest cancels
+        check(!heat.introPending);
+        check(!heat.Observe(true, true, true, 5, 3, 0, 800)); // starts high
+        check(heat.TakeIntro() == -1);
+        check(heat.Observe(true, true, true, 2, 4, 0, 900)); // identity replacement
+        check(!heat.Observe(false, true, true, 2, 4, 0, 901));
+        check(!heat.Observe(true, false, true, 2, 4, 0, 902));
+        check(!heat.Observe(true, true, false, 2, 4, 0, 903));
+        check(!HeatKeepingState::Low(std::numeric_limits<float>::quiet_NaN()));
+        check(!HeatKeepingState::Low(0));
+        check(heat.Observe(true, true, true, 2, 0, -1, 1000, true));
+        heat.DeferIntro(1, 1000);
+        check(heat.Observe(true, true, true, 2, 0, -1, 1100));
+        check(heat.Observe(true, true, true, 2, 5, 0, 1200));
+        check(!heat.Observe(true, true, true, 4, 5, 0, 1300));
+        check(heat.TakeIntro() == 1);
+        heat.Reset();
+        check(heat.Observe(true, true, true, 2, 0, -1, 2000, true));
+        heat.DeferIntro(1, 2000);
+        check(!heat.Observe(true, true, true, 2, 0, -1, 6000));
+        check(!heat.introPending); // no stale scene replay
+        // Regression: escape is visible before MusicAI stops requesting pursuit
+        // music. Never allow TryStart to erase the current EA TRAX event here.
+        check(heat.Observe(true, true, true, 2, 6, 0, 7000, false, true));
+        heat.DeferIntro(1, 7000);
+        for (unsigned tick = 7100; tick < 7110; ++tick) {
+            check(heat.Observe(true, true, true, 2, 6, 4, tick, false, true));
+            check(heat.exitTail && !heat.introPending);
+            check(heat.Observe(true, true, true, 2, 6, 4, tick, true, true));
+            check(heat.TakeIntro() == -1);
+        }
+        check(heat.Observe(true, true, true, 2, 0, -1, 7200, false, true));
+        heat.DeferIntro(1, 7200);
+        check(!heat.introPending);
+        check(!heat.Observe(true, true, true, 2, 0, -1, 7300, false, false));
+        check(!heat.holding && !heat.exitTail && !heat.pursuitIdentity);
+        check(!heat.Observe(true, true, true, 2, 6, 4, 7400, true, true)); // no re-arm
+        check(!heat.Observe(true, true, true, 2, 6, 3, 7500, true, true));
+        check(heat.Observe(true, true, true, 2, 7, 0, 7600, false, true));
+        check(heat.Observe(true, true, true, 2, 7, 4, 7700, false, true));
+        check(!heat.Observe(true, true, true, 4, 8, 0, 7800, false, true)); // fresh high pursuit
+        check(!heat.exitTail && heat.escalated);
+        check(!heat.Observe(true, true, true, 4, 8, 4, 7900, false, true)); // no high exit tail
+        check(heat.Observe(true, true, true, 2, 9, 0, 8000, false, true));
+        check(!heat.Observe(true, true, true, 2, 9, 3, 8100, false, true)); // arrest
+        check(heat.Observe(true, true, true, 2, 10, 0, 8200, false, true));
+        check(!heat.Observe(true, false, true, 2, 10, 4, 8300, false, true)); // scene exit
+        ok = ok && failures == 0;
+        std::cout << (failures ? "FAIL" : "PASS") << " heat keeping: boundaries, cooldown, escalation, one-shot intro, cleanup, invalid reads, escape music tail\n";
+    }
+    {
+        unsigned failures = 0;
+        auto check = [&](bool passed) { if (!passed) ++failures; };
+        HeatKeepingState heat;
+        // Two event pursuits, separated by escape, with the same reusable identity.
+        for (unsigned run = 0; run < 2; ++run) {
+            const unsigned tick = 10000 + run * 1000;
+            check(!heat.Observe(true, false, false, 0, 42, 0, tick, false, true, true));
+            check(heat.nativeOwned && !heat.holding);
+            check(!heat.Observe(true, false, false, 0, 42, 2, tick+1, false, true, true));
+            // Event completes while this pursuit is still active. No late takeover.
+            check(!heat.Observe(true, true, true, 2, 42, 0, tick+2, false, true, true));
+            check(!heat.Observe(true, true, true, 2, 42, 2, tick+3, false, true, false));
+            check(!heat.Observe(true, true, true, 2, 42, 0, tick+4, true, true, false));
+            check(heat.nativeOwned && !heat.introPending);
+            check(!heat.Observe(true, true, true, 2, 42, 4, tick+5, false, true, true));
+            check(!heat.Observe(true, true, true, 2, 0, -1, tick+6, false, true, false));
+            check(heat.nativeOwned); // wait for the native music tail
+            check(!heat.Observe(true, true, true, 2, 0, -1, tick+7, false, false, false));
+            check(!heat.nativeOwned && !heat.pursuitIdentity);
+        }
+        // A fresh low-heat free-roam pursuit still keeps EA TRAX.
+        check(heat.Observe(true, true, true, 2, 43, 0, 13000, false, true, false));
+        heat.DeferIntro(1, 13000);
+        check(!heat.Observe(true, true, true, 4, 43, 0, 13001, false, true, false));
+        check(!heat.Observe(true, true, true, 4, 43, 0, 13002, false, true, true));
+        check(heat.TakeIntro() == 1 && heat.TakeIntro() == -1);
+        for (int state = 0; state < 4; ++state) {
+            check(CanAdaptPursuitMusic(state, true, true) == (state == 1));
+            check(!CanAdaptPursuitMusic(state, false, true));
+            check(!CanAdaptPursuitMusic(state, true, false));
+        }
+        // Corrected intensity can differ from the native controller indefinitely.
+        // That must not make every control message produce a pressure log.
+        PursuitPressureLogState logs;
+        unsigned count = 0;
+        for (unsigned tick = 0; tick < 80000; tick += 80)
+            if (logs.Due(127, tick)) ++count;
+        check(count == 10);
+        check(logs.Due(20, 80000));
+        check(!logs.Due(20, 80080));
+        ok = ok && failures == 0;
+        std::cout << (failures ? "FAIL" : "PASS") << " event pursuit ownership: escape/re-engage, event-to-roam, EA TRAX isolation, pressure log pacing\n";
+    }
     unsigned listReads = 0;
     auto subset = [&] { ++listReads; return std::vector<std::size_t>{2,8}; };
     std::array<unsigned,9> randomGroups{};
@@ -301,7 +427,7 @@ int wmain(const int argc, wchar_t** argv) {
         return 0;
     }
     if (command == L"--export-native-jobs" && argc >= 3) {
-        auto catalog = LoadCatalog(argv[2]);
+        auto catalog = LoadCatalog(argv[2], true, argc >= 4 ? _wtoi(argv[3]) : -1);
         auto quote = [](const std::string& s) {
             std::string out = "\"";
             for (const unsigned char c : s) {

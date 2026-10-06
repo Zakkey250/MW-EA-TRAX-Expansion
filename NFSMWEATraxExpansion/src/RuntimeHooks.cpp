@@ -8,6 +8,9 @@
 #include "Utilities.h"
 #include "GameImports.h"
 #include "TraxHudAspect.h"
+#include "HeatKeeping.h"
+#include "StockTrackState.h"
+#include "PlaybackDiagnostics.h"
 
 #include <Windows.h>
 #include <MinHook.h>
@@ -129,6 +132,7 @@ struct JukeboxTrack {
     std::uint32_t eventId;
 };
 static_assert(sizeof(JukeboxTrack) == 20);
+static_assert(offsetof(JukeboxTrack, album)==4 && offsetof(JukeboxTrack, artist)==8);
 
 struct SaveTrack {
     std::uint32_t trackNumber;
@@ -171,6 +175,20 @@ CatalogResult* g_catalog = nullptr;
 // canonical low-24 value so both call forms resolve to the same entry.
 std::unordered_map<std::uint32_t, std::size_t> g_eventToTrack;
 std::vector<TrackMode> g_customModes;
+std::array<std::uint32_t,26> g_stockEvents{};
+std::string g_stockProfile;
+std::vector<JukeboxTrack*> g_addedTracks;
+bool g_swapArtistAlbum = false;
+ULONGLONG g_lastDisplayPoll = 0;
+PlaybackDiagnosticState g_playbackDiagnostic;
+std::atomic<std::uintptr_t> g_eaPlayer{0};
+std::atomic<int> g_timerRemaining{-999};
+std::atomic<ULONGLONG> g_timerReadAt{0};
+std::atomic<int> g_timerStream{-999};
+std::atomic<unsigned> g_playCount{0};
+unsigned g_selectionCount=0;
+using PathTimerFn=int(__thiscall*)(void*,int);
+PathTimerFn g_originalPathTimer=nullptr;
 std::vector<TrackMode> g_combinedModes;
 std::vector<std::unique_ptr<SaveTrack[]>> g_retainedShadows;
 SaveTrack* g_shadowEntries = nullptr;
@@ -200,6 +218,7 @@ ChannelFn g_originalStopMusic = nullptr;
 std::size_t g_pursuitGroup = 0;
 
 bool g_pursuitStarted = false;
+HeatKeepingState g_heatKeeping;
 using MusicControlFn = void(__thiscall*)(void*, void*);
 MusicControlFn g_originalMusicControl = nullptr;
 using PartLookupFn = int(__cdecl*)(int, int);
@@ -211,9 +230,23 @@ int g_adaptiveStatus = -1;
 bool g_adaptiveEnding = false;
 std::uint32_t g_adaptiveCrashStamp = 0;
 PursuitIntensityLatch g_intensityLatch;
-std::uint32_t g_lastPressureLog = 0;
+PursuitPressureLogState g_pressureLog;
 int g_pressureReadStage = 0;
 int g_lastPressureFailure = -1;
+
+void ResetPursuitPlayback() {
+    g_pursuitGroup = 0;
+    g_pursuitStarted = false;
+    g_adaptiveStatus = -1;
+    g_adaptiveEnding = false;
+    g_adaptiveCrashStamp = 0;
+    g_nativeBodyPart = 4;
+    g_lastIntensityBucket = -1;
+    g_intensityLatch = {};
+    g_pressureLog = {};
+    g_pressureReadStage = 0;
+    g_lastPressureFailure = -1;
+}
 
 const Track* AdaptiveTrack() {
     if (!g_pursuitGroup || g_pursuitGroup > g_catalog->pursuitTracks.size()) return nullptr;
@@ -321,6 +354,13 @@ bool ReadPursuitPressure(float* heat, int* cops, float* kmh, std::uint32_t* tick
 }
 
 void __fastcall MusicControlHook(void* self, void*, void* message) {
+    // Native MusicControl itself ignores non-pursuit controllers. Apply the
+    // same ownership boundary before reading pressure or queuing custom cues.
+    const int musicState = *reinterpret_cast<int*>(static_cast<unsigned char*>(self) + 0x148);
+    if (!CanAdaptPursuitMusic(musicState, g_pursuitStarted, AdaptiveTrack() != nullptr)) {
+        g_originalMusicControl(self, message);
+        return;
+    }
     alignas(4) unsigned char adjusted[0x1c];
     float heat = 0, kmh = 0;
     int cops = 0;
@@ -335,8 +375,7 @@ void __fastcall MusicControlHook(void* self, void*, void* message) {
         const int corrected = g_intensityLatch.Update(pressure, native, tick);
         *reinterpret_cast<int*>(adjusted + 0x18) = corrected;
         g_originalMusicControl(self, adjusted);
-        if (tick - g_lastPressureLog >= 8000u || g_lastIntensityBucket != (corrected <= 42 ? 0 : corrected <= 84 ? 1 : 2)) {
-            g_lastPressureLog = tick;
+        if (g_pressureLog.Due(corrected, tick)) {
             Log(LogLevel::Info, "Adaptive pressure: heat=%.2f cops=%d kmh=%.1f score=%.1f native=%d corrected=%d high=%d", heat, cops, kmh, pressure, native, corrected, g_intensityLatch.high);
         }
     } else {
@@ -522,10 +561,14 @@ void __fastcall SelectJukeboxTrackHook(void* self, void*) {
         g_originalSelectJukeboxTrack(self);
         return;
     }
-    // This is the EATrax music-flow controller.  Retain it only for the
-    // lifetime of the currently selected custom track so an unpaired
-    // Pathfinder replay at EOF can be promoted back to the native high-level
-    // next-song/HUD path.
+    // Native next-song selection; diagnostics do not synthesize playback.
+    ++g_selectionCount;
+
+    // Both stock and custom song selection end ownership of the previous
+    // pursuit. Waiting for a custom GetEvent misses all vanilla songs.
+    if (g_pursuitGroup || g_pursuitStarted)
+        Log(LogLevel::Info, "EA TRAX selection: clearing previous pursuit playback state");
+    ResetPursuitPlayback();
 
     std::unique_lock<std::mutex> lock(g_runtimeMutex);
     if (!g_status.tracksAppended || g_combinedModes.empty()) {
@@ -546,11 +589,21 @@ void __fastcall SelectJukeboxTrackHook(void* self, void*) {
 extern "C" void __stdcall OnTrackModeChanged(const std::uint32_t trackIndex,
                                                 const std::uint32_t rawMode) {
     if (rawMode > 3 || g_catalog == nullptr) return;
+    if (g_catalog->config.streamerMode && trackIndex < g_status.nativeTrackCount) {
+        if (g_shadowEntries) g_shadowEntries[trackIndex].mode = 0;
+        if (trackIndex < g_combinedModes.size()) g_combinedModes[trackIndex] = TrackMode::Off;
+        return; // Never overwrite the normal profile's saved stock-song modes.
+    }
     const auto mode = static_cast<TrackMode>(rawMode);
     std::lock_guard<std::mutex> lock(g_runtimeMutex);
     if (trackIndex < g_combinedModes.size()) g_combinedModes[trackIndex] = mode;
     if (trackIndex < g_status.nativeTrackCount) {
         if (g_nativeEntries != nullptr) g_nativeEntries[trackIndex].mode = static_cast<std::uint8_t>(mode);
+        if (!g_stockProfile.empty() && g_stockEvents[trackIndex]) {
+            const bool saved=WriteStockMode(g_catalog->config.statePath,g_stockProfile,g_stockEvents[trackIndex],rawMode);
+            Log(saved ? LogLevel::Info : LogLevel::Warning,"Stock mode override: profile=%s event=%08X mode=%u saved=%d",
+                Hex64(Fnv1a64(g_stockProfile)).c_str(),g_stockEvents[trackIndex],rawMode,saved);
+        }
         return;
     }
     const std::size_t customIndex = trackIndex - g_status.nativeTrackCount;
@@ -672,6 +725,23 @@ bool AppendCustomTracks(void* nativeSaveBase) {
     auto* actualNativeEntries = reinterpret_cast<SaveTrack*>(
         static_cast<std::uint8_t*>(nativeSaveBase) + 0x324);
     std::memcpy(shadow.get(), actualNativeEntries, sizeof(SaveTrack) * nativeCount);
+    char profileName[32]{}; SIZE_T read=0;
+    g_stockProfile.clear();
+    if(ReadProcessMemory(GetCurrentProcess(),nativeSaveBase,profileName,sizeof(profileName),&read) &&
+       read==sizeof(profileName) && profileName[0] && std::memchr(profileName,0,sizeof(profileName)))
+        g_stockProfile=profileName;
+    unsigned restored=0;
+    for(int i=0;i<nativeCount;++i) {
+        g_stockEvents[i]=nativeBegin[i]->eventId;
+        if(!g_catalog->config.streamerMode)
+            if(const auto mode=ReadStockMode(g_catalog->config.statePath,g_stockProfile,g_stockEvents[i])) {
+                shadow[i].mode=static_cast<uint8_t>(*mode);++restored;
+            }
+    }
+    Log(LogLevel::Info,"Stock mode restore: profile=%s entries=%u streamer=%d",
+        g_stockProfile.empty()?"unavailable":Hex64(Fnv1a64(g_stockProfile)).c_str(),restored,g_catalog->config.streamerMode);
+    if (g_catalog->config.streamerMode)
+        for (int i = 0; i < nativeCount; ++i) shadow[i].mode = 0;
     for (std::size_t index = 0; index < g_catalog->tracks.size(); ++index) {
         SaveTrack& entry = shadow[nativeCount + index];
         entry.trackNumber = static_cast<std::uint32_t>(nativeCount + index);
@@ -689,8 +759,8 @@ bool AppendCustomTracks(void* nativeSaveBase) {
             return false;
         }
         target->title = source.title.data();
-        target->album = source.album.data();
-        target->artist = source.artist.data();
+        target->album = g_swapArtistAlbum ? source.artist.data() : source.album.data();
+        target->artist = g_swapArtistAlbum ? source.album.data() : source.artist.data();
         target->playbackMode = source.playbackMode.data();
         target->eventId = source.eventId;
         allocated.push_back(target);
@@ -733,6 +803,9 @@ bool AppendCustomTracks(void* nativeSaveBase) {
         Log(LogLevel::Error, "Save-state isolation refused: %s", patchError.c_str());
         return false;
     }
+    if(!g_catalog->config.streamerMode)
+        for(int i=0;i<nativeCount;++i) actualNativeEntries[i].mode=shadow[i].mode;
+    g_addedTracks=allocated;
     g_retainedShadows.push_back(std::move(shadow));
 
     g_status.tracksAppended = true;
@@ -769,18 +842,14 @@ void* __cdecl GetEventHook(const std::uint32_t eventId, const std::uint32_t mask
     const auto low = eventId & 0x00FFFFFFu;
     if (low == 0xC3FA91) {
         // Native stop is authoritative during scene teardown; never queue an outro here.
-        g_pursuitGroup = 0;
-        g_pursuitStarted = false;
-        g_adaptiveEnding = false;
-        g_adaptiveStatus = -1;
+        ResetPursuitPlayback();
         Log(LogLevel::Info, "Native pursuit stop: preserving event=%08X", eventId);
         return g_originalGetEvent(eventId, mask);
     }
     std::uint32_t nativeEvent = eventId;
     const auto custom = g_eventToTrack.find(low);
     if (custom != g_eventToTrack.end()) {
-        g_pursuitGroup = 0;
-        g_pursuitStarted = false;
+        ResetPursuitPlayback();
         Log(LogLevel::Info, "Native EA TRAX event=%08X title=%s", eventId,
             g_catalog->tracks[custom->second].title.c_str());
     } else if (g_pursuitGroup && IsInteractiveMusicEvent(low)) {
@@ -827,8 +896,7 @@ void* __cdecl GetEventHook(const std::uint32_t eventId, const std::uint32_t mask
     void* result = g_originalGetEvent(nativeEvent, mask);
     if (!result && nativeEvent != eventId) {
         Log(LogLevel::Error, "Native pursuit event unavailable; restoring MW event=%08X", eventId);
-        g_pursuitGroup = 0;
-        g_pursuitStarted = false;
+        ResetPursuitPlayback();
         g_pendingEvent.store(eventId);
         return g_originalGetEvent(eventId, mask);
     }
@@ -841,6 +909,10 @@ int __fastcall PlayHook(void* self, void*, int a1, std::uint32_t a2, int a3, int
                         std::uint32_t a5) {
     const auto event = g_pendingEvent.exchange(kNoPendingEvent);
     const int result = g_originalPlay(self, a1, a2, a3, a4, a5);
+    if(LoggingEnabled() && g_eventToTrack.count(event & 0xFFFFFFu)) {
+        g_eaPlayer.store(reinterpret_cast<std::uintptr_t>(self));
+        g_timerRemaining.store(-999);g_timerReadAt.store(0);++g_playCount;
+    }
     const auto low = event & 0xFFFFFFu;
     if (event != kNoPendingEvent && low >= 0xE00000u && low < 0xE30000u) {
         Log(LogLevel::Info, "Native Pathfinder play: event=%08X result=%d player=%p handle=%d sample_arg=%d",
@@ -850,23 +922,12 @@ int __fastcall PlayHook(void* self, void*, int a1, std::uint32_t a2, int a3, int
 }
 
 void __cdecl TransitionClearAllHook(const std::uint32_t mask) {
-    g_pursuitGroup = 0;
-    g_pursuitStarted = false;
+    ResetPursuitPlayback();
     g_originalClearAllEvents(mask);
 }
 
 void __cdecl PursuitClearAllHook(const std::uint32_t mask) {
-    g_intensityLatch = {};
-    g_lastPressureLog = 0;
-    g_lastPressureFailure = -1;
-    g_pressureReadStage = 0;
-    g_pursuitGroup = 0;
-    g_pursuitStarted = false;
-    g_adaptiveStatus = -1;
-    g_adaptiveEnding = false;
-    g_adaptiveCrashStamp = 0;
-    g_nativeBodyPart = 4;
-    g_lastIntensityBucket = -1;
+    ResetPursuitPlayback();
     g_originalClearAllEvents(mask);
     // Read only at the pursuit-start boundary: edits affect the next pursuit,
     // never interrupt or restart the phrase currently playing.
@@ -898,8 +959,8 @@ void __cdecl PursuitClearAllHook(const std::uint32_t mask) {
 }
 
 void __fastcall StopMusicHook(void* self, void*) {
-    g_pursuitGroup = 0;
-    g_pursuitStarted = false;
+    g_heatKeeping.Reset();
+    ResetPursuitPlayback();
     g_originalStopMusic(self);
 }
 
@@ -1136,6 +1197,69 @@ bool InstallTraxHudAssist(std::string* error) {
     Log(LogLevel::Info,"EA TRAX HUD aspect assist enabled for native world position only");return true;
 }
 
+void PollTrackPresentation() {
+    const auto now=GetTickCount64();
+    if(now-g_lastDisplayPoll<1000)return;
+    g_lastDisplayPoll=now;
+    const bool swap=ReadIniBool(g_catalog->config.iniPath,L"Main",L"SwapArtistAlbum",false);
+    if(swap==g_swapArtistAlbum)return;
+    std::lock_guard<std::mutex> lock(g_runtimeMutex);
+    g_swapArtistAlbum=swap;
+    for(size_t i=0;i<g_addedTracks.size() && i<g_catalog->tracks.size();++i) {
+        auto& source=g_catalog->tracks[i];
+        g_addedTracks[i]->album=swap ? source.artist.data() : source.album.data();
+        g_addedTracks[i]->artist=swap ? source.album.data() : source.artist.data();
+    }
+    Log(LogLevel::Info,"Metadata presentation: SwapArtistAlbum=%d; applied on next native UI/HUD refresh",swap);
+}
+int __fastcall DiagnosticTimerHook(void* self, void*, int stream) {
+    const int remaining=g_originalPathTimer(self,stream);
+    if(reinterpret_cast<std::uintptr_t>(self)==g_eaPlayer.load()) {
+        g_timerRemaining.store(remaining);g_timerStream.store(stream);g_timerReadAt.store(GetTickCount64());
+    }
+    return remaining;
+}
+bool ReadPlaybackSnapshot(void* self, PlaybackSnapshot* s) {
+    __try {
+        const auto p=static_cast<unsigned char*>(self);
+        s->music=*reinterpret_cast<int*>(p+0x148);
+        s->pool=*reinterpret_cast<int*>(p+0x150);
+        s->event=*reinterpret_cast<uint32_t*>(p+0x128);
+        s->flags=*reinterpret_cast<uint32_t*>(p+0x114);
+        s->paused=p[0x11a]!=0 || p[0x118]!=0 ||
+            (*reinterpret_cast<unsigned char*>(Address(0x00911FF0))&1)!=0;
+        const int channel=*reinterpret_cast<int*>(p+0x13c);
+        if(channel>=0 && channel<3) {
+            const auto object=*reinterpret_cast<uintptr_t*>(Address(0x009121D8)+channel*4);
+            s->channel=object ? *reinterpret_cast<int*>(object+0x38) : 1;
+        }
+        const auto sound=*reinterpret_cast<uintptr_t*>(Address(0x00911FA8));
+        if(sound)s->sound=*reinterpret_cast<int*>(sound+0x70);
+        return true;
+    } __except(EXCEPTION_EXECUTE_HANDLER) {return false;}
+}
+void ObservePlayback(void* self) {
+    if(!LoggingEnabled())return;
+    const auto now=GetTickCount64();
+    if(!g_playbackDiagnostic.Poll(now))return;
+    if(!ReadIniBool(g_catalog->config.iniPath,L"Main",L"PlaybackDiagnostics",true))return;
+    PlaybackSnapshot s;
+    if(!ReadPlaybackSnapshot(self,&s))return;
+    const bool changed=g_playbackDiagnostic.StateChanged(s,now);
+    const bool gap=g_playbackDiagnostic.SuspectedGap(s,now);
+    const bool sample=now-g_playbackDiagnostic.lastStateLog>=60000;
+    if(changed || gap || sample) {
+        g_playbackDiagnostic.lastStateLog=now;
+        const auto time=g_timerReadAt.load();
+        Log(gap ? LogLevel::Warning : LogLevel::Info,
+            "TRAX_DIAG reason=%s music=%d pool=%d channel=%d sound=%d event=%08X flags=%08X paused=%d selections=%u addon_plays=%u remaining=%d timer_stream=%d timer_age_ms=%llu keep=%d pursuit_group=%u",
+            gap ? "suspected_gap" : changed ? "context" : "sample",s.music,s.pool,s.channel,s.sound,s.event,s.flags,s.paused,
+            g_selectionCount,g_playCount.load(),g_timerRemaining.load(),g_timerStream.load(),time?now-time:~0ull,
+            g_heatKeeping.holding,static_cast<unsigned>(g_pursuitGroup));
+    }
+}
+#include "HeatKeeping.inl"
+
 bool ApplyTransitionPatches(std::string* error) {
     std::vector<PatchRecord> pending;
     if (!ApplyRelativePatch(kStartPursuitClearCall, PursuitClearAllHook,
@@ -1176,6 +1300,7 @@ bool InstallRuntimeHooks(CatalogResult* catalog, std::string* error) {
     }
     g_moduleBase = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
     g_catalog = catalog;
+    g_swapArtistAlbum=ReadIniBool(catalog->config.iniPath,L"Main",L"SwapArtistAlbum",false);
     g_customModes.clear();
     g_combinedModes.clear();
     for (const Track& track : catalog->tracks) g_customModes.push_back(track.mode);
@@ -1189,7 +1314,7 @@ bool InstallRuntimeHooks(CatalogResult* catalog, std::string* error) {
 
     for (int i = 0; i != 2; ++i) {
         const auto name = i == 0 ? L"EA_TRAX.mpf" : L"EA_TRAX.mus";
-        g_cacheBankPaths[i] = (catalog->config.modRoot / L"Cache" / name).lexically_normal().wstring();
+        g_cacheBankPaths[i] = (catalog->config.cacheDirectory / name).lexically_normal().wstring();
         g_cacheBankPathsAnsi[i] = WideToAnsi(g_cacheBankPaths[i]);
         g_logicalBankPaths[i] = LowerAscii(WideToAnsi((catalog->config.modRoot / L"..\\..\\SOUND\\PFDATA" / name).lexically_normal().wstring()));
     }
@@ -1200,12 +1325,13 @@ bool InstallRuntimeHooks(CatalogResult* catalog, std::string* error) {
         !CreateHook(kRefreshJukebox, RefreshJukeboxHook, &g_originalRefreshJukebox, error) ||
         !CreateHook(kSelectJukeboxTrack, SelectJukeboxTrackHook, &g_originalSelectJukeboxTrack, error) ||
         !CreateHook(kPathGetEvent, GetEventHook, &g_originalGetEvent, error) ||
-        !CreateHook(kPathPlay, PlayHook, &g_originalPlay, error)) {
+        !CreateHook(kPathPlay, PlayHook, &g_originalPlay, error) ||
+        (LoggingEnabled() && !CreateHook(kPathTimeRemaining, DiagnosticTimerHook, &g_originalPathTimer, error))) {
         MH_Uninitialize();
         return false;
     }
     g_originalClearAllEvents = reinterpret_cast<ClearAllEventsFn>(Address(kClearAllEvents));
-    if (!ApplyTransitionPatches(error) || !InstallTraxHudAssist(error) || !InstallUnicodeMetadata(error)) {
+    if (!InstallHeatKeeping(error) || !ApplyTransitionPatches(error) || !InstallTraxHudAssist(error) || !InstallUnicodeMetadata(error)) {
         RestorePatches(&g_permanentPatches);
         MH_Uninitialize();
         return false;
@@ -1232,9 +1358,9 @@ bool InstallRuntimeHooks(CatalogResult* catalog, std::string* error) {
 }
 
 void StopRuntimeAudio() {
+    g_heatKeeping.Reset();
     // The game's own engine owns every sound and performs its normal shutdown.
-    g_pursuitGroup = 0;
-    g_pursuitStarted = false;
+    ResetPursuitPlayback();
 }
 
 RuntimeStatus GetRuntimeStatus() {

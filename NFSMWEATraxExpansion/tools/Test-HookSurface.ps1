@@ -8,11 +8,12 @@ $ErrorActionPreference = 'Stop'
 $expectedSize = 6033408
 $expectedHash = '05873CF968E0BDD021C1E67FF22E9350D22E7F433F1D749323FA6AE27F504700'
 $stockIconHash = '6A1E41A449751241DE3653BE6BE9750A0B087E210011375C514872789CDE0BA8'
-$resolvedExecutable = (Resolve-Path -LiteralPath $Executable).Path
+$resolvedExecutable = (Resolve-Path -LiteralPath $Executable).ProviderPath
 $item = Get-Item -LiteralPath $resolvedExecutable
 $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $resolvedExecutable).Hash
 $nfspatcher = $item.Length -eq 6029312 -and $hash -in @('80774C2E5D619B4F120B48D4462896FD504C263399D203A238769CFFDE1D253C','B248271BF8EAC8C9B283B8C95E3ADD672B713BF529B05F1780E58268493B9D06')
-if (-not $nfspatcher -and ($item.Length -ne $expectedSize -or $hash -notin @($expectedHash, $stockIconHash))) {
+$redux = $item.Length -eq 5926912 -and $hash -eq '0C5675A08CD71FD6D31CA87E992A915054BD8B80D268BFF0561D7ECC2067E342'
+if (-not $nfspatcher -and -not $redux -and ($item.Length -ne $expectedSize -or $hash -notin @($expectedHash, $stockIconHash))) {
     throw "Unsupported executable identity: size=$($item.Length) sha256=$hash"
 }
 
@@ -64,6 +65,7 @@ function Assert-Bytes {
 }
 
 $guards = @(
+    @{ A = 0x004E79A0; B = [byte[]](0x53,0x55,0x56,0x8B,0xF1); N = 'MusicUpdate' },
     @{ A = 0x00688230; B = [byte[]](0x8B,0x41,0x54,0xC3); N = 'PressureAIInterface' },
     @{ A = 0x004AE340; B = [byte[]](0x51,0x56,0x8D,0x44,0x24,0x04,0x50,0x8B,0xF1); N = 'NativeAIPartMessage' },
     @{ A = 0x0065FAF0; B = [byte[]](0x56,0x57,0x8B,0xF9,0x51,0x8B,0x0F); N = 'NativeMessageDispatch' },

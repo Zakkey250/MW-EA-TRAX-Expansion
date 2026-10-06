@@ -1,4 +1,5 @@
 #pragma once
+#include "UpdateNotice.h"
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -8,7 +9,7 @@ inline std::wstring CheckRuntimeInventory(const std::filesystem::path& root) {
     std::ifstream input(root/L"RuntimeRequired.json",std::ios::binary);
     if(!input)return L"RuntimeRequired.json";
     const auto data=nlohmann::json::parse(input);
-    if(data.at("schema")!=1 || data.at("version")!="0.4.8")return L"RuntimeRequired.json (version)";
+    if(data.at("schema")!=1 || data.at("version")!=kReleaseVersion)return L"RuntimeRequired.json (version)";
     const auto& files=data.at("files");
     if(!files.is_array() || files.empty() || files.size()>2000)return L"RuntimeRequired.json (files)";
     for(const auto& item:files) {

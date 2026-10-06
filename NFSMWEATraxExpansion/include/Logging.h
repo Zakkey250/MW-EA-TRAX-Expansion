@@ -10,7 +10,8 @@ enum class LogLevel {
     Error,
 };
 
-void InitializeLogging(const std::filesystem::path& path);
+void InitializeLogging(const std::filesystem::path& path, bool enabled = false);
+bool LoggingEnabled();
 void Log(LogLevel level, const char* format, ...);
 
 }  // namespace eatrax

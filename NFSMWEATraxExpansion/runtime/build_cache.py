@@ -3,7 +3,7 @@ import argparse,configparser,hashlib,json,math,msvcrt,os,re,shutil,struct,subpro
 from pathlib import Path
 import native_bank as n
 from track_metadata import prepare_sidecars
-VERSION=4
+VERSION=5
 # Conservative native streaming boundary. This is a compatibility guard, not
 # a claim that every native read path has a proven signed 2 GiB limit.
 MAX_BANK_BYTES=0x7fffff80
@@ -14,7 +14,7 @@ def source_key(job, volume):
 def copy_stream(source, destination, offset):
     """Copy a previously encoded SCHl stream without decoding or remeasuring."""
     source.seek(offset)
-    first=True
+    first=True;expected=None;frames=0
     while True:
         header=source.read(8)
         if len(header)!=8:raise ValueError('Truncated cached stream')
@@ -22,8 +22,17 @@ def copy_stream(source, destination, offset):
         if size<8 or size>1048576 or (first and tag!=b'SCHl'):raise ValueError('Invalid cached stream')
         body=source.read(size-8)
         if len(body)!=size-8:raise ValueError('Truncated cached block')
+        if first:
+            body,expected=n.repair_frame_header(body)
+            header=struct.pack('<4sI',tag,8+len(body))
+        elif tag==b'SCDl':
+            if len(body)<4:raise ValueError('Truncated cached frame count')
+            frames+=n.u32(body,0)
         destination.write(header);destination.write(body);first=False
-        if tag==b'SCEl':return
+        if tag==b'SCEl':
+            if expected is not None and frames!=expected:
+                raise ValueError('SCHl repair frame count does not match audio blocks')
+            return
 def sha(path):
     with path.open('rb') as f:return hashlib.file_digest(f,'sha256').hexdigest().upper()
 def config(path):
@@ -35,8 +44,17 @@ def run(args):
     if p.returncode:raise RuntimeError(f'{Path(args[0]).name}: '+p.stderr.decode(errors='replace')[-1500:]+p.stdout.decode(errors='replace')[-500:])
     return p
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument('--mod-root',type=Path,required=True);args=ap.parse_args()
-    mod=args.mod_root.resolve();game=mod.parents[1];cache=mod/'Cache';cache.mkdir(exist_ok=True)
+    # Redirected Windows stdout can default to cp932. Progress must not abort
+    # a successful migration because a song title contains Unicode punctuation.
+    for output in (sys.stdout,sys.stderr):
+        if output is not None and hasattr(output,'reconfigure'):
+            output.reconfigure(encoding='utf-8',errors='backslashreplace')
+    ap=argparse.ArgumentParser();ap.add_argument('--mod-root',type=Path,required=True)
+    ap.add_argument('--streamer-mode',type=int,choices=[0,1],default=None);args=ap.parse_args()
+    mod=args.mod_root.resolve();game=mod.parents[1]
+    ini=config(mod/'NFSMWEATraxExpansion.ini')
+    streamer=ini.getboolean('Main','StreamerMode',fallback=False) if args.streamer_mode is None else bool(args.streamer_mode)
+    cache=mod/('StreamerCache' if streamer else 'Cache');cache.mkdir(exist_ok=True)
     runtime=mod/'Runtime';probe=runtime/'NFSMWEATraxProbe.exe';ff=runtime/'ffmpeg.exe'
     with (cache/'build.lock').open('a+b') as lock:
         lock.seek(0);lock.write(b'0');lock.flush();lock.seek(0)
@@ -44,10 +62,11 @@ def main():
         log=(cache/'Build.log').open('a',encoding='utf-8',buffering=1)
         def say(s):log.write(time.strftime('%Y-%m-%d %H:%M:%S ')+s+'\n');print(s,flush=True)
         try:
-            ini=config(mod/'NFSMWEATraxExpansion.ini');volume=ini.getfloat('Main','VolumeMultiplier',fallback=1)
+            volume=ini.getfloat('Main','VolumeMultiplier',fallback=1)
             if not math.isfinite(volume) or not 0<=volume<=2:raise ValueError('VolumeMultiplier must be 0..2')
-            prepare_sidecars(mod, ini.getboolean('Main','LoadExternalTracks',fallback=True), say)
-            jobs=json.loads(run([probe,'--export-native-jobs',mod]).stdout.decode('utf-8-sig'))
+            prepare_sidecars(mod, streamer or ini.getboolean('Main','LoadExternalTracks',fallback=True), say, 'StreamerTracks' if streamer else 'Tracks')
+            jobs=json.loads(run([probe,'--export-native-jobs',mod,int(streamer)]).stdout.decode('utf-8-sig'))
+            if streamer and not jobs:raise ValueError('StreamerTracks has no playable songs. Add music before enabling StreamerMode. / StreamerTracksに再生可能な音源を配置してください。')
             if len(jobs)>94:raise ValueError('Native bank supports at most 94 added songs with this pursuit pack')
             hashfile=cache/'FileHashes.json'
             saved_hashes=json.loads(hashfile.read_text()) if hashfile.exists() else {}
@@ -82,6 +101,7 @@ def main():
                 if volume!=packcfg.getfloat('PursuitPack','VolumeMultiplier'):say('Pursuit source gain remains authored at '+packcfg.get('PursuitPack','VolumeMultiplier'))
                 packhash['ini']=identity(packini)
             signature=dict(version=VERSION,basis=basis,jobs=jobs,volume=volume,pursuit=packhash)
+            if streamer:signature['streamer_mode']=1
             if hashes!=saved_hashes:
                 (cache/'FileHashes.tmp').write_text(json.dumps(hashes,indent=2),encoding='utf-8');os.replace(cache/'FileHashes.tmp',hashfile)
             fingerprint=hashlib.sha256(json.dumps(signature,sort_keys=True).encode()).hexdigest()
@@ -93,7 +113,9 @@ def main():
                 if previous.get('fingerprint')==fingerprint and valid_outputs:
                     say(f'CACHE HIT: {len(jobs)} songs; source_hash_reads={hash_reads}; bank_reads=0');return 0
                 old=previous.get('signature',{})
-                if valid_outputs and old.get('version') == VERSION:
+                # v4 audio is already compressed and normalized; only repair its
+                # signed header encoding during copy. No lossy re-encoding.
+                if valid_outputs and old.get('version') in (4, VERSION):
                     old_samples=n.samples((cache/'EA_TRAX.mpf').read_bytes())
                     for job,measurement in zip(old.get('jobs',[]),previous.get('measurements',[])):
                         reusable[source_key(job,old.get('volume'))]=(old_samples[measurement['sample']-1][0]*128,measurement)
@@ -103,10 +125,20 @@ def main():
                 if len(ns)!=3681 or len(ss)!=3257 or len(es)!=70:raise ValueError('Stock layout mismatch')
                 outmus=work/'EA_TRAX.mus';shutil.copyfile(stockmus,outmus)
                 profile=config(Path('missing-profile'));profile['NativeMusic']={'Version':'2','LegacyPursuitSources':'0','VolumeMultiplier':str(volume),'TrackCount':str(len(jobs))}
+                if streamer:profile['NativeMusic']['StreamerMode']='1'
                 template=next(e for e in es if n.u32(e,12)&0xffffff==0xad947)
                 templates=[bytearray(ns[i]) for i in [1490,1491,1492]]
                 measurements=[]
                 with outmus.open('ab') as dest:
+                    if streamer:
+                        # These 1-based samples are the verified stock EA TRAX songs.
+                        # Keep native pursuit/ambience samples and every graph intact.
+                        # Silence them as a second barrier against preview/direct events.
+                        raw=work/'silence.pcm';raw.write_bytes(bytes(36000*4))
+                        silent=work/'silence.asf';run([probe,'--encode-eaxa',raw,0,36000,silent])
+                        dest.write(bytes((-dest.tell())%128));offset=dest.tell()//128
+                        with silent.open('rb') as encoded:shutil.copyfileobj(encoded,dest)
+                        for sample in range(1316,3241):ss[sample-1]=(offset,1000)
                     for index,j in enumerate(jobs):
                         source=Path(j['path']);pcm=work/'source.wav';normalized=work/'normalized.wav';stream=work/'stream.asf'
                         reused=reusable.get(source_key(j,volume))

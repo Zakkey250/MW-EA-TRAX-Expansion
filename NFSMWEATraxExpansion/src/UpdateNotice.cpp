@@ -71,8 +71,8 @@ DWORD WINAPI NoticeWorker(void* raw) noexcept {
         const bool ja=context->japanese;
         if(!context->problem.empty()) {
             std::wstring text=ja?
-                L"追加ファイルが不足しているか、対応版ではありません。\r\nGitHubから0.4.8のRuntime一式を導入してください。\r\n今回は標準曲を使用します。導入後は再起動してください。\r\n\r\n確認対象: ":
-                L"Required files are missing or incompatible.\r\nInstall the complete 0.4.8 Runtime package from GitHub.\r\nThis launch uses stock music. Restart after installation.\r\n\r\nCheck: ";
+                L"追加ファイルが不足しているか、対応版ではありません。\r\nGitHubから0.5.0のRuntime一式を導入してください。\r\n今回は標準曲を使用します。導入後は再起動してください。\r\n\r\n確認対象: ":
+                L"Required files are missing or incompatible.\r\nInstall the complete 0.5.0 Runtime package from GitHub.\r\nThis launch uses stock music. Restart after installation.\r\n\r\nCheck: ";
             text+=context->problem.substr(0,100);
             text+=L"\r\ngithub.com/Zakkey250/MW-EA-TRAX-Expansion/releases";
             const bool shown=mod_update::ShowSerializedNotice(context->module,
@@ -89,8 +89,8 @@ DWORD WINAPI NoticeWorker(void* raw) noexcept {
         const auto update=mod_update::FindUpdate(payload,kReleaseVersion,repository,assetPrefix);
         if(!update || !StartupNoticeAllowed())return 0;
         const std::wstring latest(update->tag.begin(),update->tag.end());
-        std::wstring text=ja?L"新しいバージョンが公開されています。\r\n現在: 0.4.8\r\n公開版: ":
-            L"A newer version is available.\r\nInstalled: 0.4.8\r\nAvailable: ";
+        std::wstring text=ja?L"新しいバージョンが公開されています。\r\n現在: 0.5.0\r\n公開版: ":
+            L"A newer version is available.\r\nInstalled: 0.5.0\r\nAvailable: ";
         text+=latest;
         text+=ja?L"\r\n\r\n更新はゲーム終了後に行ってください。\r\n自動ダウンロード・インストールは行いません。":
             L"\r\n\r\nUpdate after closing the game.\r\nNo automatic download or installation.";

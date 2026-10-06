@@ -18,9 +18,9 @@ struct CatalogResult {
     std::unordered_map<std::uint32_t, std::uint32_t> pursuitControlEvents;
 };
 
-Config LoadConfig(const std::filesystem::path& modRoot);
+Config LoadConfig(const std::filesystem::path& modRoot, int streamerOverride = -1);
 CatalogResult LoadCatalog(const std::filesystem::path& modRoot,
-                          bool allowMusicSfxCodec = true);
+                          bool allowMusicSfxCodec = true, int streamerOverride = -1);
 bool LoadNativeMusic(CatalogResult& catalog, std::string* error);
 
 }  // namespace eatrax

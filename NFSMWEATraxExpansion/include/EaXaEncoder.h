@@ -23,7 +23,9 @@ inline void Append32(std::vector<uint8_t>& b,uint32_t v) {
     for(int i=0;i<4;++i) b.push_back(static_cast<uint8_t>(v>>(8*i)));
 }
 inline void Patch(std::vector<uint8_t>& b,uint8_t tag,uint32_t v) {
-    int n=1; while(n<4 && (v>>(8*n))) ++n;
+    // MW's SCHl reader sign-extends 1/2/3-byte patch values. Leave a
+    // leading zero when needed so positive frame counts stay positive.
+    int n=1; while(n<4 && v >= (uint32_t(1) << (8*n-1))) ++n;
     b.push_back(tag); b.push_back(static_cast<uint8_t>(n));
     for(int i=n-1;i>=0;--i) b.push_back(static_cast<uint8_t>(v>>(8*i)));
 }
@@ -59,7 +61,7 @@ inline void Frame(const std::array<int,28>& input,History& history,std::vector<u
     output.insert(output.end(),encoded.begin(),encoded.end());history=chosen;
 }
 inline uint32_t EncodeRaw(const std::filesystem::path& source,uint64_t start,uint32_t frames,const std::filesystem::path& target) {
-    if(!frames || source==target) throw std::runtime_error("Invalid EA-XA input/output");
+    if(!frames || frames>INT32_MAX || source==target) throw std::runtime_error("Invalid EA-XA input/output");
     std::ifstream input(source,std::ios::binary);
     if(!input) throw std::runtime_error("Cannot open PCM source");
     input.seekg(0,std::ios::end);const auto length=static_cast<uint64_t>(input.tellg());

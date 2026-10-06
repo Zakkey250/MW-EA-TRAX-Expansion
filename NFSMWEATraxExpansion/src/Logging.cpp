@@ -3,6 +3,7 @@
 #include <Windows.h>
 
 #include <cstdarg>
+#include <atomic>
 #include <cstdio>
 #include <mutex>
 #include <string>
@@ -11,6 +12,7 @@ namespace eatrax {
 namespace {
 
 std::filesystem::path g_logPath;
+std::atomic<bool> g_loggingEnabled{false};
 std::mutex g_logMutex;
 
 const char* LevelName(const LogLevel level) {
@@ -27,7 +29,11 @@ const char* LevelName(const LogLevel level) {
 
 }  // namespace
 
-void InitializeLogging(const std::filesystem::path& path) {
+bool LoggingEnabled() { return g_loggingEnabled.load(std::memory_order_relaxed); }
+
+void InitializeLogging(const std::filesystem::path& path, bool enabled) {
+    g_loggingEnabled.store(enabled,std::memory_order_relaxed);
+    if(!enabled)return;
     std::lock_guard<std::mutex> lock(g_logMutex);
     g_logPath = path;
     std::error_code error;
@@ -41,6 +47,7 @@ void InitializeLogging(const std::filesystem::path& path) {
 }
 
 void Log(const LogLevel level, const char* format, ...) {
+    if(!LoggingEnabled())return;
     char message[2048]{};
     va_list arguments;
     va_start(arguments, format);

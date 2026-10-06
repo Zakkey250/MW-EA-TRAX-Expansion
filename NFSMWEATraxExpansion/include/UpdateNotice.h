@@ -3,7 +3,7 @@
 #include <filesystem>
 #include <string>
 namespace eatrax {
-inline constexpr char kReleaseVersion[]="0.4.8";
+inline constexpr char kReleaseVersion[]="0.5.0";
 // An empty result means that the packaged runtime is complete.
 std::wstring RuntimeProblem(const std::filesystem::path& root) noexcept;
 // Invoked after native bank selection, outside the loader lock and preparation UI.
