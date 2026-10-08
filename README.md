@@ -1,10 +1,10 @@
 # MW EA TRAX Expansion and The Run Pursuit Music
 
-## Source use / ソース利用条件
+## License / ライセンス
 
-Research, exchange of ideas and personal use (including local modifications/builds) are permitted. Redistribution and distribution of modified builds require prior express permission. See [LICENSE.md](LICENSE.md); third-party licenses and previously granted rights are preserved.
+Original code and documentation by Zakkey250 are licensed under the [MIT License](LICENSE.md). Third-party components retain their respective licenses. This license grants no rights to game software, game audio, or user-supplied music.
 
-研究・意見交換・個人利用（個人用の改変・ビルドを含む）は可能です。再配布および改変物のビルド配布には事前の明示的な許可が必要です。[利用条件](LICENSE.md)を確認してください。第三者ライセンスと過去に付与済みの権利は維持します。
+Zakkey250が制作したコードと文書は[MIT License](LICENSE.md)で公開します。第三者コンポーネントには、それぞれのライセンスが引き続き適用されます。ゲーム本体・ゲーム音源・利用者が用意する楽曲の権利を付与するものではありません。
 
 **Version 0.5.0 — stable release.** / バージョン0.5.0 正式版。
 
@@ -70,4 +70,4 @@ Windows x64、Visual StudioのC++ v143ツール、Windows SDKを使用します�
 
 ## Credits and licenses
 
-See [third-party sources](NFSMWEATraxExpansion/docs/ThirdParty-Sources.md) and [included license notices](NFSMWEATraxExpansion/distribution/Licenses). Each third-party component retains its respective license. Publishing source does not grant rights to redistribute game audio.
+Original project code and documentation are available under the [MIT License](LICENSE.md). See [third-party sources](NFSMWEATraxExpansion/docs/ThirdParty-Sources.md) and [included license notices](NFSMWEATraxExpansion/distribution/Licenses). Each third-party component retains its respective license. Publishing source does not grant rights to redistribute game audio.

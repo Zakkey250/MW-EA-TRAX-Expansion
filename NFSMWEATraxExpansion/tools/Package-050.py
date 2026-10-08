@@ -33,6 +33,7 @@ for name,path in {
     'README.md':P/'docs/Split-Install-0.5.0.md',
     'Release-Notes.md':P/'docs/Release-0.5.0.md',
 }.items():core[name]=read(path)
+core['LICENSE.md']=read(ROOT/'LICENSE.md')
 core[BASE+'RuntimeRequired.json']=(json.dumps(inventory,indent=2)+'\n').encode()
 core[BASE+'Pursuit/README.txt']=b'The Run music is optional. Obtain the converter separately from GitHub. See README.md.\n'
 for f in (P/'distribution/Licenses').iterdir():
@@ -42,9 +43,11 @@ for name in ['minhook.txt','miniaudio.txt','mpg123.txt','vgmstream.txt']:
 core[BASE+'Licenses/nlohmann-json.txt']=read(P/'third_party/nlohmann/LICENSE.MIT')
 runtime[BASE+'Licenses/ThirdParty-Sources.md']=read(P/'docs/ThirdParty-Sources.md')
 runtime['Runtime-Install.md']=read(P/'docs/Split-Install-0.5.0.md')
+runtime['LICENSE.md']=read(ROOT/'LICENSE.md')
 converter={'TheRunPursuitConverter.exe':read(P/'converter/TheRunPursuitConverter.exe'),
            'README.md':read(P/'docs/Converter-README.md'),
            'Split-Install.md':read(P/'docs/Split-Install-0.5.0.md'),
+           'LICENSE.md':read(ROOT/'LICENSE.md'),
            'Licenses/vgmstream.txt':read(P/'distribution/Licenses/vgmstream.txt')}
 def package(name,files,is_core=False):
     forbidden={'.zip','.7z','.rar','.mp3','.wav','.m4a','.mus','.mpf','.sps','.log','.pdb','.obj'}
